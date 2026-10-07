@@ -22,7 +22,7 @@ class NotReadable(Exception):
 
 def list_summaries(conn: sqlite3.Connection, book_id: int) -> dict:
     readable = readable_chapters(conn, book_id)
-    stored = _load(conn, readable)
+    stored = load_summaries(conn, readable)
     chapters = [
         {
             "number": ch.number,
@@ -38,7 +38,7 @@ def list_summaries(conn: sqlite3.Connection, book_id: int) -> dict:
 def generate_next(conn: sqlite3.Connection, client: LLMClient, book_id: int) -> dict:
     """生成下一个缺失的章节摘要；前端循环调用直到 missing 为 0。"""
     readable = readable_chapters(conn, book_id)
-    stored = _load(conn, readable)
+    stored = load_summaries(conn, readable)
     missing = [ch for ch in readable if ch.id not in stored]
     if not missing:
         return {"generated": None, "missing": 0}
@@ -51,7 +51,7 @@ def regenerate(conn: sqlite3.Connection, client: LLMClient, book_id: int, number
     target = next((ch for ch in readable if ch.number == number), None)
     if target is None:
         raise NotReadable(f"第 {number} 章不在已读范围内")
-    return _generate(conn, client, book_id, readable, _load(conn, readable), target)
+    return _generate(conn, client, book_id, readable, load_summaries(conn, readable), target)
 
 
 def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: dict, target) -> dict:
@@ -97,7 +97,7 @@ def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: di
          json.dumps(names, ensure_ascii=False), client.model),
     )
     conn.commit()
-    saved = _load(conn, [target])[target.id]
+    saved = load_summaries(conn, [target])[target.id]
     return {"number": target.number, "title": target.title, "parent_titles": target.parent_titles, **_public(saved)}
 
 
@@ -176,7 +176,7 @@ def _normalize_names(names: list[dict]) -> list[dict]:
     return result
 
 
-def _load(conn: sqlite3.Connection, chapters: list[ReadableChapter]) -> dict[int, dict]:
+def load_summaries(conn: sqlite3.Connection, chapters: list[ReadableChapter]) -> dict[int, dict]:
     if not chapters:
         return {}
     ids = [ch.id for ch in chapters]

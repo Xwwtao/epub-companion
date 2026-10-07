@@ -40,7 +40,8 @@ def client(data_dir) -> TestClient:
 
 class FakeLLM:
     """记录所有请求。默认按原文里的 MARKER_CHnn 返回 SUM_CHnn / END_CHnn / NAME_CHnn；
-    合并请求返回 MERGED。queue 里放字符串可以指定接下来几次的原始返回内容。"""
+    合并请求返回 MERGED；回顾请求返回 "RECAP " + 输入里出现的所有 SUM_CHnn。
+    queue 里放字符串可以指定接下来几次的原始返回内容。"""
 
     model = "fake-model"
 
@@ -54,6 +55,10 @@ class FakeLLM:
         self.calls.append(messages)
         if self.queue:
             return self.queue.pop(0)
+        if prompts.RECAP_JSON_FORMAT in messages[0]["content"]:
+            # 回顾：列出输入里出现过的章节摘要，方便断言用了哪些章节；分组汇总时会逐层传递
+            found = re.findall(r"SUM_CH\d+", messages[-1]["content"])
+            return json.dumps({"recap": "RECAP " + " ".join(found)})
         if prompts.TASK_MERGE in messages[0]["content"]:
             return json.dumps({"summary": "MERGED", "ending_state": "MERGED_END", "names": []})
         body = messages[-1]["content"].rsplit("原文】", 1)[-1]

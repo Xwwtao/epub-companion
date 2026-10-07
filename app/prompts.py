@@ -89,3 +89,29 @@ def merge_messages(label: str, parts: list[dict], roster) -> list[dict]:
         {"role": "system", "content": system_prompt(TASK_MERGE, SUMMARY_JSON_FORMAT)},
         {"role": "user", "content": user},
     ]
+
+
+TASK_RECAP = """\
+任务：根据【已读章节摘要】，为读者写一段整体的前情回顾，帮他在继续读之前快速想起故事。
+- 像一位读过同样内容的朋友帮他回忆：抓住主线和关键转折，交代清楚主要人物是谁、彼此什么关系、现在处境如何。
+- 次要人物、具体时间地点、调查细节之类能省则省，不要逐章复述。
+- 按故事发展顺序写，分成几段，读起来轻松自然。最后一段落在已读内容结束时的局面上。"""
+
+TASK_RECAP_GROUP = """\
+任务：这是已读内容中连续的一部分章节。根据【已读章节摘要】，写一段这部分的情节概要，供之后汇总成整体回顾。
+- 保留主线、关键转折和主要人物的处境变化，省略次要细节。"""
+
+RECAP_JSON_FORMAT = """\
+【输出格式】
+只输出一个 JSON 对象，不要输出其他内容：
+{"recap": "回顾正文，段落之间用换行分隔"}
+篇幅随已读内容多少而定，最多 800 字；已读内容很少就写得很短。"""
+
+
+def recap_messages(items: list[tuple[str, str]], group: bool = False) -> list[dict]:
+    """items 为 (章节标签, 摘要) 列表；group=True 时为分组汇总的中间步骤。"""
+    body = "\n".join(f"- {label}：{summary}" for label, summary in items)
+    return [
+        {"role": "system", "content": system_prompt(TASK_RECAP_GROUP if group else TASK_RECAP, RECAP_JSON_FORMAT)},
+        {"role": "user", "content": f"【已读章节摘要】\n{body}"},
+    ]

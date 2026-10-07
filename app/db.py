@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS chapter_summaries (
     model TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS recaps (
+    id INTEGER PRIMARY KEY,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    up_to_chapter INTEGER NOT NULL,     -- 生成时的进度 N
+    source_versions_hash TEXT NOT NULL, -- 参与汇总的各章 (chapter_id, version) 的哈希
+    content TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (book_id, up_to_chapter, source_versions_hash)
+);
 """
 
 DEFAULT_USER_ID = 1

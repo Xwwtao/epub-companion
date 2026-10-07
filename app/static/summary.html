@@ -12,6 +12,12 @@
 <p id="progress"></p>
 <p id="status"></p>
 
+<h2>上次读到哪</h2>
+<div id="last-read"></div>
+
+<h2>整体回顾</h2>
+<div id="recap"></div>
+
 <h2>逐章摘要</h2>
 <div id="summaries"></div>
 
@@ -32,7 +38,39 @@ async function load() {
   document.getElementById("progress").textContent =
     `正在读第 ${book.current_chapter} 章，以下只回顾第 1 ~ ${book.current_chapter - 1} 章。`;
   renderSummaries(data.chapters);
+  renderLastRead(await api(`/api/books/${bookId}/last-read`));
   return data;
+}
+
+function renderLastRead(data) {
+  const box = document.getElementById("last-read");
+  box.replaceChildren();
+  if (data.chapters.length === 0) {
+    box.append(el("p", { class: "muted" }, "还没有可回顾的内容。"));
+    return;
+  }
+  const last = data.chapters[data.chapters.length - 1];
+  if (last.ending_state) {
+    box.append(el("p", { class: "highlight" }, el("strong", {}, "你停在这里："), last.ending_state));
+  }
+  for (const ch of data.chapters) {
+    const label = [...ch.parent_titles, ch.title].join(" · ");
+    box.append(el("p", {}, el("strong", {}, label + "："), ch.summary || "等待生成…"));
+  }
+}
+
+async function loadRecap() {
+  const box = document.getElementById("recap");
+  box.replaceChildren(el("p", { class: "muted" }, "生成中…"));
+  try {
+    const data = await api(`/api/books/${bookId}/recap`);
+    box.replaceChildren();
+    if (data.status === "empty") box.append(el("p", { class: "muted" }, "还没有可回顾的内容。"));
+    else if (data.status === "incomplete") box.append(el("p", { class: "muted" }, `还有 ${data.missing} 章摘要未生成，补齐后显示整体回顾。`));
+    else for (const para of data.content.split(/\n+/)) box.append(el("p", {}, para));
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "muted" }, `整体回顾生成失败：${err.message}`));
+  }
 }
 
 function renderSummaries(chapters) {
@@ -86,6 +124,7 @@ async function regenerate(number, btn) {
   try {
     await api(`/api/books/${bookId}/chapters/${number}/summary/regenerate`, { method: "POST" });
     await load();
+    loadRecap();  // 参与汇总的摘要变了，回顾会重新生成
   } catch (err) {
     alert(err.message);
     btn.disabled = false;
@@ -93,7 +132,11 @@ async function regenerate(number, btn) {
   }
 }
 
-load().then((data) => { if (data.missing > 0) generateMissing(data.missing); })
+load()
+  .then(async (data) => {
+    if (data.missing > 0) await generateMissing(data.missing);
+    loadRecap();
+  })
   .catch((err) => { statusEl.textContent = err.message; });
 </script>
 </body>

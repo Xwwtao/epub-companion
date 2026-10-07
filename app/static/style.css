@@ -6,3 +6,4 @@ li.current .label { font-weight: bold; }
 .tag { font-size: 12px; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; color: #888; }
 .muted { color: #777; }
 .tag.warn { color: #b45309; }
+.highlight { background: #fef9c3; padding: 8px 12px; border-radius: 4px; }

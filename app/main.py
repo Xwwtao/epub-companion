@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import books, db, summaries
+from app import books, db, recap, summaries
 from app.config import get_settings
 from app.epub_parser import EpubError
 from app.llm import DeepSeekClient, LLMClient, LLMError
@@ -134,6 +134,24 @@ def regenerate_summary(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except LLMError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/api/books/{book_id}/recap")
+def get_recap(
+    book_id: int = Depends(require_book),
+    conn: sqlite3.Connection = Depends(get_conn),
+    llm: LLMClient = Depends(get_llm),
+) -> dict:
+    current_chapter = books.get_book(conn, book_id)["current_chapter"]
+    try:
+        return recap.get_recap(conn, llm, book_id, current_chapter)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/api/books/{book_id}/last-read")
+def get_last_read(book_id: int = Depends(require_book), conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    return recap.last_read(conn, book_id)
 
 
 @app.delete("/api/books/{book_id}", status_code=204)
