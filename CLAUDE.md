@@ -31,7 +31,7 @@ cp .env.example .env                 # 配置全部走环境变量，见 app/con
 - 数据：SQLite（标准库 `sqlite3`，不用 ORM），建表语句在 `app/db.py`，启动时 `CREATE TABLE IF NOT EXISTS`；EPUB 原文件和封面存在 `DATA_DIR` 下，库里存相对路径。每个请求一个连接（`main.get_conn`）。
 - LLM：所有请求都经由 `llm.complete_json`，它负责 JSON 解析、内容不合格时重试一次，以及开发模式日志（`DATA_DIR/logs/llm_requests.jsonl`）。prompt 全部在 `app/prompts.py`，系统提示一律用 `system_prompt()` 拼，自动带上 `SPOILER_GUARD`。模型客户端通过 FastAPI 依赖 `main.get_llm` 注入。
 - 逐章摘要（`app/summaries.py`）由前端循环调用 `POST .../summaries/next` 一次生成一章，因为后一章要用前面章节的摘要和人物名单（`merge_names`）作上下文。人物名单只在内部使用，接口不返回 `names`。
-- 整体回顾（`app/recap.py`）只用逐章摘要，不读原文；逐章摘要没补齐时不生成。缓存键是"进度 N + 参与各章 `(chapter_id, version)` 的哈希"，所以进度变化、勾选跳过、重新生成任一章摘要都会自然失效，不需要手动清缓存。"上次读到哪"直接取最近两个已读章节的摘要，不调用模型。
+- 整体回顾（`app/recap.py`）只用逐章摘要，不读原文；逐章摘要没补齐时不生成。缓存键是"进度 N + 参与各章 `(chapter_id, 摘要内容)` 的哈希"（不用版本号：摘要删掉重建时版本号会从 1 重来，会撞上旧缓存），所以进度变化、勾选跳过、重新生成任一章摘要都会自然失效，不需要手动清缓存。"上次读到哪"直接取最近两个已读章节的摘要，不调用模型。
 - 为以后的登录预留了 `user_id`，v1 固定为 `DEFAULT_USER_ID = 1`，查询时都带上这个条件。
 
 ## 测试

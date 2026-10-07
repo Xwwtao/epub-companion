@@ -25,8 +25,9 @@ def get_recap(conn: sqlite3.Connection, client: LLMClient, book_id: int, current
     if missing:
         return {"status": "incomplete", "missing": missing}
 
-    # 进度、参与章节（含跳过的变化）、任一章摘要重新生成，都会让哈希变化
-    source = [(ch.id, stored[ch.id]["version"]) for ch in readable]
+    # 进度、参与章节（含跳过的变化）、任一章摘要内容变化，都会让哈希变化。
+    # 用摘要内容而不是版本号：摘要被删掉重建时版本号会从 1 重新开始，可能撞上旧缓存
+    source = [(ch.id, stored[ch.id]["summary"]) for ch in readable]
     source_hash = hashlib.sha256(json.dumps(source).encode()).hexdigest()
     row = conn.execute(
         "SELECT content, created_at FROM recaps"

@@ -55,6 +55,23 @@ def test_regenerating_a_summary_invalidates_recap(client, fake_llm, book_id):
     assert len(recap_calls(fake_llm)) == 2
 
 
+def test_rebuilt_summaries_invalidate_recap_even_with_same_version(client, fake_llm, book_id):
+    from app import db
+
+    set_progress(client, book_id, 3)
+    generate_all(client, book_id)
+    get_recap(client, book_id)
+
+    conn = db.connect()
+    conn.execute("DELETE FROM chapter_summaries")
+    conn.commit()
+    conn.close()
+    fake_llm.queue.append(json.dumps({"summary": "SUM_CH77", "ending_state": "E", "names": []}))
+    generate_all(client, book_id)  # 版本号重新从 1 开始
+
+    assert get_recap(client, book_id)["content"] == "RECAP SUM_CH77 SUM_CH02"
+
+
 def test_progress_change_invalidates_and_rollback_hides_later_content(client, fake_llm, book_id):
     set_progress(client, book_id, 6)
     generate_all(client, book_id)
