@@ -20,7 +20,7 @@ cp .env.example .env                 # 配置全部走环境变量，见 app/con
 ## 防剧透约束（改代码前必读）
 
 - 进度语义是"**正在读第 N 章**"：只有第 1 ~ N-1 章（且未被标记跳过）算已读。
-- 发给 LLM 的章节正文只能经由 `readable_chapters(book_id)`（`app/readable.py`，阶段 2）取得。除了导入时写库，其他代码不得直接 `SELECT` `chapters.text`；`app/books.py` 里查询章节时要显式列出字段，不带 `text`。
+- 发给 LLM 的章节正文只能经由 `readable_chapters(conn, book_id)`（`app/readable.py`）取得，`tests/test_readable.py` 里有守护测试扫描代码。除了导入时写库，其他代码不得直接 `SELECT` `chapters.text`；`app/books.py` 里查询章节时要显式列出字段，不带 `text`。
 - 不向 LLM 传书名、作者等元数据；所有生成请求的系统提示共用 spec §2.1 的名著兜底条款（集中定义在一处）。
 - 开发模式下 LLM 请求日志不得包含 API key 或请求头。
 

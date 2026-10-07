@@ -28,15 +28,47 @@ async function render() {
   header.replaceChildren(
     book.has_cover ? el("img", { src: `/api/books/${book.id}/cover`, class: "cover", alt: "" }) : "",
     el("h1", {}, book.title),
-    el("p", {}, `${book.author || "未知作者"} · 共 ${book.chapter_count} 章`),
+    el("p", {}, book.author || "未知作者"),
+    el("p", {}, el("strong", {}, `正在读第 ${book.current_chapter} 章 / 共 ${book.chapter_count} 章`),
+      `（第 1 ~ ${book.current_chapter - 1} 章算已读）`),
   );
 
   const list = document.getElementById("chapters");
   list.replaceChildren();
   for (const ch of book.chapters) {
     const label = [...ch.parent_titles, ch.title].join(" · ");
-    list.append(el("li", {}, label));
+    const state = ch.number < book.current_chapter ? "read"
+      : ch.number === book.current_chapter ? "current" : "unread";
+
+    const readBtn = el("button", {}, "正在读这一章");
+    readBtn.disabled = state === "current";
+    readBtn.onclick = () => update(`/api/books/${book.id}/progress`, { chapter: ch.number });
+
+    const skip = el("input", { type: "checkbox" });
+    skip.checked = ch.skipped;
+    skip.onchange = () => update(`/api/books/${book.id}/chapters/${ch.number}/skipped`, { skipped: skip.checked });
+
+    list.append(el("li", { class: state },
+      el("span", { class: "label" }, label),
+      state === "current" ? el("span", { class: "tag" }, "正在读") : "",
+      state === "unread" ? el("span", { class: "tag" }, "未读") : "",
+      " ", readBtn, " ",
+      el("label", {}, skip, "跳过（非正文）"),
+    ));
   }
+}
+
+async function update(path, body) {
+  try {
+    await api(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    alert(err.message);
+  }
+  render();
 }
 
 render();

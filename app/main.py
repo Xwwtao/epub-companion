@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from app import books, db
 from app.epub_parser import EpubError
@@ -58,6 +59,34 @@ def get_cover(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> Fil
     if path is None or not path.exists():
         raise HTTPException(status_code=404, detail="没有封面")
     return FileResponse(path)
+
+
+class ProgressIn(BaseModel):
+    chapter: int
+
+
+class SkippedIn(BaseModel):
+    skipped: bool
+
+
+@app.put("/api/books/{book_id}/progress")
+def set_progress(book_id: int, body: ProgressIn, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    try:
+        found = books.set_progress(conn, book_id, body.chapter)
+    except books.InvalidProgress as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not found:
+        raise HTTPException(status_code=404, detail="书不存在")
+    return books.get_book(conn, book_id)
+
+
+@app.put("/api/books/{book_id}/chapters/{number}/skipped")
+def set_skipped(
+    book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connection = Depends(get_conn)
+) -> dict:
+    if not books.set_skipped(conn, book_id, number, body.skipped):
+        raise HTTPException(status_code=404, detail="章节不存在")
+    return books.get_book(conn, book_id)
 
 
 @app.delete("/api/books/{book_id}", status_code=204)

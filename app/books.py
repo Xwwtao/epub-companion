@@ -97,6 +97,36 @@ def get_book(conn: sqlite3.Connection, book_id: int) -> dict | None:
     return book
 
 
+class InvalidProgress(ValueError):
+    pass
+
+
+def set_progress(conn: sqlite3.Connection, book_id: int, chapter: int) -> bool:
+    """设置"正在读第 N 章"。书不存在返回 False；N 超出范围抛 InvalidProgress。"""
+    row = conn.execute(
+        "SELECT (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) AS chapter_count"
+        " FROM books b WHERE b.id = ? AND b.user_id = ?",
+        (book_id, DEFAULT_USER_ID),
+    ).fetchone()
+    if row is None:
+        return False
+    if not 1 <= chapter <= row["chapter_count"]:
+        raise InvalidProgress(f"章节序号应在 1 ~ {row['chapter_count']} 之间")
+    conn.execute("UPDATE books SET current_chapter = ? WHERE id = ?", (chapter, book_id))
+    conn.commit()
+    return True
+
+
+def set_skipped(conn: sqlite3.Connection, book_id: int, number: int, skipped: bool) -> bool:
+    cur = conn.execute(
+        "UPDATE chapters SET skipped = ? WHERE number = ? AND book_id ="
+        " (SELECT id FROM books WHERE id = ? AND user_id = ?)",
+        (int(skipped), number, book_id, DEFAULT_USER_ID),
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
 def get_cover_path(conn: sqlite3.Connection, book_id: int) -> Path | None:
     row = conn.execute(
         "SELECT cover_path FROM books WHERE id = ? AND user_id = ?", (book_id, DEFAULT_USER_ID)

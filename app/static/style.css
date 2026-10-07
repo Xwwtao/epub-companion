@@ -1,3 +1,6 @@
 body { font-family: system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; line-height: 1.6; }
 li { margin: 4px 0; }
 .cover { max-height: 160px; float: right; margin-left: 16px; }
+li.unread .label { color: #999; }
+li.current .label { font-weight: bold; }
+.tag { font-size: 12px; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; color: #888; }
