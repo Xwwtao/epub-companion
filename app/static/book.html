@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>章节</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<p><a href="/">← 书架</a></p>
+<div id="book"></div>
+<ol id="chapters"></ol>
+
+<script src="app.js"></script>
+<script>
+const bookId = new URLSearchParams(location.search).get("id");
+
+async function render() {
+  let book;
+  try {
+    book = await api(`/api/books/${bookId}`);
+  } catch (err) {
+    document.getElementById("book").textContent = err.message;
+    return;
+  }
+  document.title = book.title;
+  const header = document.getElementById("book");
+  header.replaceChildren(
+    book.has_cover ? el("img", { src: `/api/books/${book.id}/cover`, class: "cover", alt: "" }) : "",
+    el("h1", {}, book.title),
+    el("p", {}, `${book.author || "未知作者"} · 共 ${book.chapter_count} 章`),
+  );
+
+  const list = document.getElementById("chapters");
+  list.replaceChildren();
+  for (const ch of book.chapters) {
+    const label = [...ch.parent_titles, ch.title].join(" · ");
+    list.append(el("li", {}, label));
+  }
+}
+
+render();
+</script>
+</body>
+</html>
