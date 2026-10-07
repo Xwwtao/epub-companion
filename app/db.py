@@ -22,8 +22,20 @@ CREATE TABLE IF NOT EXISTS chapters (
     parent_titles TEXT NOT NULL DEFAULT '[]',  -- JSON 数组，如 ["第一卷"]
     start_href TEXT NOT NULL,
     skipped INTEGER NOT NULL DEFAULT 0,
+    mentions_book_info INTEGER NOT NULL DEFAULT 0,  -- 正文同时含书名和作者（如版权页），导入时算好
     text TEXT NOT NULL,               -- 只允许经由 readable_chapters 读取
     UNIQUE (book_id, number)
+);
+
+CREATE TABLE IF NOT EXISTS chapter_summaries (
+    id INTEGER PRIMARY KEY,
+    chapter_id INTEGER NOT NULL UNIQUE REFERENCES chapters(id) ON DELETE CASCADE,
+    summary TEXT NOT NULL,
+    ending_state TEXT NOT NULL,
+    names TEXT NOT NULL DEFAULT '[]',  -- JSON：[{"name", "aliases", "original"}]
+    version INTEGER NOT NULL DEFAULT 1,  -- 每次重新生成 +1
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 """
 
@@ -47,6 +59,14 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    # 旧库补列；新列都带默认值
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(chapters)")}
+    if "mentions_book_info" not in columns:
+        conn.execute("ALTER TABLE chapters ADD COLUMN mentions_book_info INTEGER NOT NULL DEFAULT 0")

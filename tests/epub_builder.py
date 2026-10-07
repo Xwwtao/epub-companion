@@ -155,3 +155,20 @@ def with_encryption(src: Path, dst: Path, encrypted_uri: str) -> Path:
     with zipfile.ZipFile(dst, "a") as zf:
         zf.writestr("META-INF/encryption.xml", xml)
     return dst
+
+
+def with_book_info(path: Path) -> Path:
+    """含版权页的书。作者元数据带国籍前缀，正文里写法不同，测试作者名的归一化。
+
+    1 版权页（短，含书名和作者）→ 默认跳过；2 只提到书名 → 不标记；
+    3 很长且含书名和作者 → 只标记不跳过；4 普通正文。
+    """
+    book = _new_book("白页测试", "(日)某作者", "zh")
+    pages = [
+        _page("copyright.xhtml", "<p>书名：白页测试</p><p>作者：〔日〕某作者 著</p><p>译者：某译者</p>"),
+        _page("c1.xhtml", "<h2>第一章</h2><p>白页测试这几个字只是书名。</p>"),
+        _page("c2.xhtml", "<h2>第二章</h2><p>" + "很长的正文。" * 600 + "白页测试，某作者。</p>"),
+        _page("c3.xhtml", "<h2>第三章</h2><p>普通正文。</p>"),
+    ]
+    toc = [epub.Link(p.file_name, t, p.id) for p, t in zip(pages, ["版权信息", "第一章", "第二章", "第三章"])]
+    return _write(book, pages, toc, path)

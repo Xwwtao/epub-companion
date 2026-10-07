@@ -7,13 +7,14 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<p><a href="/">← 书架</a></p>
+<p><a href="/">← 书架</a> · <a id="summary-link">前情提要</a></p>
 <div id="book"></div>
 <ol id="chapters"></ol>
 
 <script src="app.js"></script>
 <script>
 const bookId = new URLSearchParams(location.search).get("id");
+document.getElementById("summary-link").href = `summary.html?id=${bookId}`;
 
 async function render() {
   let book;
@@ -52,6 +53,10 @@ async function render() {
       el("span", { class: "label" }, label),
       state === "current" ? el("span", { class: "tag" }, "正在读") : "",
       state === "unread" ? el("span", { class: "tag" }, "未读") : "",
+      ch.mentions_book_info
+        ? el("span", { class: ch.skipped ? "tag" : "tag warn", title: "这一页含书名和作者，不跳过的话会随正文发给模型" },
+            ch.skipped ? "含书名/作者" : "含书名/作者，建议跳过")
+        : "",
       " ", readBtn, " ",
       el("label", {}, skip, "跳过（非正文）"),
     ));

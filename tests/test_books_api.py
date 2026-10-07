@@ -18,6 +18,7 @@ def test_upload_list_detail_delete(client, epubs, data_dir):
         "title": "第一章 开端",
         "parent_titles": ["第一卷 起"],
         "skipped": False,
+        "mentions_book_info": False,
     }
     # 详情接口不返回章节正文
     assert "text" not in book["chapters"][0]

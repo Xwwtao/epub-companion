@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>前情提要</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<p><a href="/">← 书架</a> · <a id="chapters-link">章节和进度</a></p>
+<h1 id="title">前情提要</h1>
+<p id="progress"></p>
+<p id="status"></p>
+
+<h2>逐章摘要</h2>
+<div id="summaries"></div>
+
+<script src="app.js"></script>
+<script>
+const bookId = new URLSearchParams(location.search).get("id");
+const statusEl = document.getElementById("status");
+document.getElementById("chapters-link").href = `book.html?id=${bookId}`;
+let generating = false;
+
+async function load() {
+  const [book, data] = await Promise.all([
+    api(`/api/books/${bookId}`),
+    api(`/api/books/${bookId}/summaries`),
+  ]);
+  document.title = `前情提要 · ${book.title}`;
+  document.getElementById("title").textContent = `前情提要 · ${book.title}`;
+  document.getElementById("progress").textContent =
+    `正在读第 ${book.current_chapter} 章，以下只回顾第 1 ~ ${book.current_chapter - 1} 章。`;
+  renderSummaries(data.chapters);
+  return data;
+}
+
+function renderSummaries(chapters) {
+  const box = document.getElementById("summaries");
+  box.replaceChildren();
+  if (chapters.length === 0) {
+    box.append(el("p", {}, "还没有可回顾的内容。"));
+    return;
+  }
+  for (const ch of chapters) {
+    const label = [...ch.parent_titles, ch.title].join(" · ");
+    const details = el("details", {}, el("summary", {}, label));
+    if (ch.summary) {
+      const btn = el("button", {}, "重新生成");
+      btn.onclick = () => regenerate(ch.number, btn);
+      details.append(
+        el("p", {}, ch.summary.summary),
+        el("p", { class: "muted" }, `章末：${ch.summary.ending_state}`),
+        btn,
+      );
+    } else {
+      details.append(el("p", { class: "muted" }, "等待生成…"));
+    }
+    box.append(details);
+  }
+}
+
+// 一次生成一章，循环到补齐为止
+async function generateMissing(total) {
+  if (generating) return;
+  generating = true;
+  try {
+    let missing = total;
+    while (missing > 0) {
+      statusEl.textContent = `生成中 ${total - missing + 1} / ${total}`;
+      const res = await api(`/api/books/${bookId}/summaries/next`, { method: "POST" });
+      missing = res.missing;
+      await load();
+    }
+    statusEl.textContent = "";
+  } catch (err) {
+    statusEl.textContent = `生成失败：${err.message}（刷新页面可从断点继续）`;
+  } finally {
+    generating = false;
+  }
+}
+
+async function regenerate(number, btn) {
+  btn.disabled = true;
+  btn.textContent = "生成中…";
+  try {
+    await api(`/api/books/${bookId}/chapters/${number}/summary/regenerate`, { method: "POST" });
+    await load();
+  } catch (err) {
+    alert(err.message);
+    btn.disabled = false;
+    btn.textContent = "重新生成";
+  }
+}
+
+load().then((data) => { if (data.missing > 0) generateMissing(data.missing); })
+  .catch((err) => { statusEl.textContent = err.message; });
+</script>
+</body>
+</html>

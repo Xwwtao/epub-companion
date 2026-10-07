@@ -1,5 +1,6 @@
 import json
 import mimetypes
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -8,6 +9,19 @@ from typing import BinaryIO
 from app.config import get_settings
 from app.db import DEFAULT_USER_ID
 from app.epub_parser import parse_epub
+
+
+# 正文同时含书名和作者、且不超过这个字数的页面（版权页、扉页之类）导入时默认跳过，
+# 避免书名随正文发给模型（spec §2）。更长的页面只在界面上提醒。
+AUTO_SKIP_MAX_CHARS = 3000
+
+
+def mentions_book_info(text: str, title: str, author: str | None) -> bool:
+    if not author:
+        return False
+    # 去掉国籍、"著"之类的修饰，如 "(日)东野圭吾 著" → "东野圭吾"
+    core_author = re.sub(r"[(（〔\[【][^)）〕\]】]*[)）〕\]】]|\s*[著译编]$", "", author).strip()
+    return bool(title) and bool(core_author) and title in text and core_author in text
 
 
 def import_book(conn: sqlite3.Connection, upload: BinaryIO) -> int:
@@ -38,13 +52,18 @@ def import_book(conn: sqlite3.Connection, upload: BinaryIO) -> int:
             ),
         )
         book_id = cur.lastrowid
+        rows = []
+        for number, ch in enumerate(parsed.chapters, start=1):
+            mentions = mentions_book_info(ch.text, parsed.title, parsed.author)
+            skipped = mentions and len(ch.text) <= AUTO_SKIP_MAX_CHARS
+            rows.append((
+                book_id, number, ch.title, json.dumps(ch.parent_titles, ensure_ascii=False), ch.start_href,
+                int(mentions), int(skipped), ch.text,
+            ))
         conn.executemany(
-            "INSERT INTO chapters (book_id, number, title, parent_titles, start_href, text)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            [
-                (book_id, number, ch.title, json.dumps(ch.parent_titles, ensure_ascii=False), ch.start_href, ch.text)
-                for number, ch in enumerate(parsed.chapters, start=1)
-            ],
+            "INSERT INTO chapters (book_id, number, title, parent_titles, start_href,"
+            " mentions_book_info, skipped, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
         )
         conn.commit()
     except BaseException:
@@ -82,7 +101,8 @@ def get_book(conn: sqlite3.Connection, book_id: int) -> dict | None:
     book = _book_dict(row)
     # 章节列表不带正文
     chapters = conn.execute(
-        "SELECT number, title, parent_titles, skipped FROM chapters WHERE book_id = ? ORDER BY number",
+        "SELECT number, title, parent_titles, skipped, mentions_book_info"
+        " FROM chapters WHERE book_id = ? ORDER BY number",
         (book_id,),
     ).fetchall()
     book["chapters"] = [
@@ -91,6 +111,7 @@ def get_book(conn: sqlite3.Connection, book_id: int) -> dict | None:
             "title": ch["title"],
             "parent_titles": json.loads(ch["parent_titles"]),
             "skipped": bool(ch["skipped"]),
+            "mentions_book_info": bool(ch["mentions_book_info"]),
         }
         for ch in chapters
     ]

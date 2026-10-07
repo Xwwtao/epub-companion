@@ -8,13 +8,14 @@
 import logging
 import posixpath
 import re
+import warnings
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import unquote
 
 import ebooklib
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bs4.element import CData, Comment, Declaration, Doctype, ProcessingInstruction
 from ebooklib import epub
 from lxml import etree
@@ -70,7 +71,7 @@ class _TextStream:
     def add_file(self, file_name: str, html: bytes) -> None:
         self.parts.append("\n")
         self.positions[(file_name, None)] = len(self.parts)
-        soup = BeautifulSoup(html, "lxml")
+        soup = _soup(html)
         root = soup.body or soup
         for node in root.descendants:
             if isinstance(node, Tag):
@@ -230,7 +231,7 @@ def _ncx_dir(book) -> str:
 def _html_heading(item) -> str | None:
     if item is None:
         return None
-    soup = BeautifulSoup(item.content, "lxml")
+    soup = _soup(item.content)
     for tag in soup.find_all(["h1", "h2", "h3", "title"]):
         text = _clean_title(tag.get_text())
         if text:
@@ -255,6 +256,13 @@ def _first_metadata(book, name: str) -> str | None:
     if values and values[0][0]:
         return values[0][0].strip() or None
     return None
+
+
+def _soup(html: bytes) -> BeautifulSoup:
+    # XHTML 用 HTML 解析器处理是有意为之（容错更好），不需要 bs4 的提示
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", XMLParsedAsHTMLWarning)
+        return BeautifulSoup(html, "lxml")
 
 
 def _clean_title(title: str | None) -> str:

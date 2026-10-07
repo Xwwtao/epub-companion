@@ -8,8 +8,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import books, db
+from app import books, db, summaries
+from app.config import get_settings
 from app.epub_parser import EpubError
+from app.llm import DeepSeekClient, LLMClient, LLMError
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -87,6 +89,51 @@ def set_skipped(
     if not books.set_skipped(conn, book_id, number, body.skipped):
         raise HTTPException(status_code=404, detail="章节不存在")
     return books.get_book(conn, book_id)
+
+
+def get_llm() -> LLMClient:
+    settings = get_settings()
+    if not settings.deepseek_api_key:
+        raise HTTPException(status_code=503, detail="没有配置 DEEPSEEK_API_KEY")
+    return DeepSeekClient(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
+
+
+def require_book(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> int:
+    if books.get_book(conn, book_id) is None:
+        raise HTTPException(status_code=404, detail="书不存在")
+    return book_id
+
+
+@app.get("/api/books/{book_id}/summaries")
+def list_summaries(book_id: int = Depends(require_book), conn: sqlite3.Connection = Depends(get_conn)) -> dict:
+    return summaries.list_summaries(conn, book_id)
+
+
+@app.post("/api/books/{book_id}/summaries/next")
+def generate_next_summary(
+    book_id: int = Depends(require_book),
+    conn: sqlite3.Connection = Depends(get_conn),
+    llm: LLMClient = Depends(get_llm),
+) -> dict:
+    try:
+        return summaries.generate_next(conn, llm, book_id)
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.post("/api/books/{book_id}/chapters/{number}/summary/regenerate")
+def regenerate_summary(
+    number: int,
+    book_id: int = Depends(require_book),
+    conn: sqlite3.Connection = Depends(get_conn),
+    llm: LLMClient = Depends(get_llm),
+) -> dict:
+    try:
+        return summaries.regenerate(conn, llm, book_id, number)
+    except summaries.NotReadable as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @app.delete("/api/books/{book_id}", status_code=204)

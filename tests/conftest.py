@@ -1,3 +1,5 @@
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,8 @@ def data_dir(tmp_path, monkeypatch) -> Path:
     d = tmp_path / "data"
     monkeypatch.setenv("DATA_DIR", str(d))
     monkeypatch.setenv("APP_ENV", "production")
+    # .env 里的真实 key 不能在测试中被用到
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
     return d
 
 
@@ -31,3 +35,44 @@ def client(data_dir) -> TestClient:
 
     with TestClient(app) as c:
         yield c
+    app.dependency_overrides.clear()
+
+
+class FakeLLM:
+    """记录所有请求。默认按原文里的 MARKER_CHnn 返回 SUM_CHnn / END_CHnn / NAME_CHnn；
+    合并请求返回 MERGED。queue 里放字符串可以指定接下来几次的原始返回内容。"""
+
+    model = "fake-model"
+
+    def __init__(self) -> None:
+        self.calls: list[list[dict]] = []
+        self.queue: list[str] = []
+
+    def chat(self, messages: list[dict], **params) -> str:
+        from app import prompts
+
+        self.calls.append(messages)
+        if self.queue:
+            return self.queue.pop(0)
+        if prompts.TASK_MERGE in messages[0]["content"]:
+            return json.dumps({"summary": "MERGED", "ending_state": "MERGED_END", "names": []})
+        body = messages[-1]["content"].rsplit("原文】", 1)[-1]
+        m = re.search(r"MARKER_CH(\d+)", body)
+        n = m.group(1) if m else "XX"
+        return json.dumps({
+            "summary": f"SUM_CH{n}",
+            "ending_state": f"END_CH{n}",
+            "names": [{"name": f"NAME_CH{n}", "aliases": [], "original": ""}],
+        })
+
+    def all_text(self) -> str:
+        return "\n".join(m["content"] for call in self.calls for m in call)
+
+
+@pytest.fixture
+def fake_llm(client) -> FakeLLM:
+    from app.main import app, get_llm
+
+    fake = FakeLLM()
+    app.dependency_overrides[get_llm] = lambda: fake
+    return fake
