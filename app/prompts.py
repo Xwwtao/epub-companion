@@ -38,6 +38,7 @@ TASK_MERGE = "任务：把同一章各段的摘要按顺序合并成整章的摘
 
 
 def system_prompt(task: str, output_format: str) -> str:
+    # 所有系统提示都从这里拼，名著兜底条款只定义一次，不会有哪个调用点漏掉或写出不同版本
     return "\n\n".join([ROLE, task, SPOILER_GUARD, WRITING_RULES, output_format])
 
 

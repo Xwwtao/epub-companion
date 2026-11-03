@@ -16,6 +16,7 @@ AUTO_SKIP_MAX_CHARS = 3000
 
 
 def mentions_book_info(text: str, title: str, author: str | None) -> bool:
+    # 要求书名和作者同时出现：只出现书名的正文很常见（人物提到书名、章节标题重复），不该被标记
     if not author:
         return False
     # 去掉国籍、"著"之类的修饰，如 "(日)东野圭吾 著" → "东野圭吾"

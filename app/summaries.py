@@ -36,7 +36,11 @@ def list_summaries(conn: sqlite3.Connection, book_id: int) -> dict:
 
 
 def generate_next(conn: sqlite3.Connection, client: LLMClient, book_id: int) -> dict:
-    """生成下一个缺失的章节摘要；前端循环调用直到 missing 为 0。"""
+    """生成下一个缺失的章节摘要；前端循环调用直到 missing 为 0。
+
+    一次只生成一章，而不是开后台任务：后一章依赖前面章节的摘要作上下文，必须按顺序来；
+    这样做天然有进度显示，中途关掉页面也不会丢掉已生成的章节。
+    """
     readable = readable_chapters(conn, book_id)
     stored = load_summaries(conn, readable)
     missing = [ch for ch in readable if ch.id not in stored]
@@ -173,6 +177,7 @@ def merge_names(names_lists) -> list[dict]:
 
 
 def split_text(text: str, limit: int) -> list[str]:
+    """按行切块，尽量不把一段话切成两半；只有单行就超长时才硬切。"""
     if len(text) <= limit:
         return [text]
     chunks: list[str] = []

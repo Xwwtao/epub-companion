@@ -20,6 +20,8 @@ class LLMError(Exception):
 
 
 class LLMClient(Protocol):
+    """模型客户端的最小接口。测试里换成 FakeLLM，就能在不联网的情况下检查每个请求的内容。"""
+
     model: str
 
     def chat(self, messages: list[dict], **params) -> str: ...
@@ -41,7 +43,11 @@ class DeepSeekClient:
 
 
 def complete_json(client: LLMClient, kind: str, messages: list[dict], meta: dict, validate) -> dict:
-    """发送请求并解析 JSON；内容不合格时重试一次。validate(data) 不合格时抛 ValueError。"""
+    """发送请求并解析 JSON；内容不合格时重试一次。validate(data) 不合格时抛 ValueError。
+
+    只对"返回了但内容不合格"重试：这类问题换一次采样通常就好了。网络错误、鉴权失败
+    直接报错，交给用户决定是否重试，避免静默地多花钱。不合格的结果绝不写入缓存。
+    """
     last_error: Exception | None = None
     for _attempt in range(2):
         _log_request(client, kind, messages, meta)

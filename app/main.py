@@ -26,6 +26,7 @@ app = FastAPI(title="EPUB 读书伴侣", lifespan=lifespan)
 
 
 def get_conn() -> Iterator[sqlite3.Connection]:
+    # 每个请求一个连接，请求结束就关；SQLite 连接很便宜，这样不用操心跨线程共享
     conn = db.connect()
     try:
         yield conn
@@ -90,6 +91,8 @@ def set_skipped(book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connec
 
 
 def get_llm() -> LLMClient:
+    """作为 FastAPI 依赖注入，测试用 dependency_overrides 换成假模型。
+    没配 key 时返回 503，而不是等到真正调用时才失败。"""
     settings = get_settings()
     if not settings.deepseek_api_key:
         raise HTTPException(status_code=503, detail="没有配置 DEEPSEEK_API_KEY")
@@ -97,6 +100,7 @@ def get_llm() -> LLMClient:
 
 
 def require_book(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> int:
+    # 先确认书存在再进入生成逻辑，书不存在时不会去创建模型客户端
     if books.get_current_chapter(conn, book_id) is None:
         raise HTTPException(status_code=404, detail="书不存在")
     return book_id
