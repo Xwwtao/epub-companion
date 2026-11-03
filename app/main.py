@@ -97,7 +97,7 @@ def get_llm() -> LLMClient:
 
 
 def require_book(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> int:
-    if books.get_book(conn, book_id) is None:
+    if books.get_current_chapter(conn, book_id) is None:
         raise HTTPException(status_code=404, detail="书不存在")
     return book_id
 
@@ -140,7 +140,7 @@ def get_recap(
     conn: sqlite3.Connection = Depends(get_conn),
     llm: LLMClient = Depends(get_llm),
 ) -> dict:
-    current_chapter = books.get_book(conn, book_id)["current_chapter"]
+    current_chapter = books.get_current_chapter(conn, book_id)
     try:
         return recap.get_recap(conn, llm, book_id, current_chapter)
     except LLMError as e:

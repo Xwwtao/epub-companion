@@ -165,23 +165,8 @@ def _flatten_toc(nodes, parents: list[str]):
 
 
 def _chapters_from_toc(book, entries: list[_TocEntry], stream: _TextStream) -> list[ParsedChapter]:
-    file_names = {file for file, anchor in stream.positions if anchor is None}
-    ncx_dir = _ncx_dir(book)
-
-    located: list[tuple[_TocEntry, int]] = []
-    for entry in entries:
-        file_part, _, fragment = entry.href.partition("#")
-        file_name = _resolve_file(unquote(file_part), file_names, ncx_dir)
-        if file_name is None:
-            logger.warning("目录项指向的文件不在正文里，已忽略：%s (%s)", entry.title, entry.href)
-            continue
-        position = stream.positions.get((file_name, unquote(fragment))) if fragment else None
-        if position is None:
-            if fragment:
-                logger.warning("找不到锚点，退化为整个文件起始处：%s (%s)", entry.title, entry.href)
-            position = stream.positions[(file_name, None)]
-        located.append((entry, position))
-
+    located = _locate_entries(book, entries, stream)
+    # 所有目录项（含带链接的父节点）都是边界；章节到下一个边界为止
     boundaries = sorted({position for _, position in located})
     chapters = []
     for entry, start in located:
@@ -197,6 +182,26 @@ def _chapters_from_toc(book, entries: list[_TocEntry], stream: _TextStream) -> l
             )
         )
     return chapters
+
+
+def _locate_entries(book, entries: list[_TocEntry], stream: _TextStream) -> list[tuple[_TocEntry, int]]:
+    """把目录项的 href#anchor 换算成文本流里的下标；找不到文件的目录项丢弃。"""
+    file_names = {file for file, anchor in stream.positions if anchor is None}
+    ncx_dir = _ncx_dir(book)
+    located: list[tuple[_TocEntry, int]] = []
+    for entry in entries:
+        file_part, _, fragment = entry.href.partition("#")
+        file_name = _resolve_file(unquote(file_part), file_names, ncx_dir)
+        if file_name is None:
+            logger.warning("目录项指向的文件不在正文里，已忽略：%s (%s)", entry.title, entry.href)
+            continue
+        position = stream.positions.get((file_name, unquote(fragment))) if fragment else None
+        if position is None:
+            if fragment:
+                logger.warning("找不到锚点，退化为整个文件起始处：%s (%s)", entry.title, entry.href)
+            position = stream.positions[(file_name, None)]
+        located.append((entry, position))
+    return located
 
 
 def _chapters_from_spine(book, stream: _TextStream) -> list[ParsedChapter]:
