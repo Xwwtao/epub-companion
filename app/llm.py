@@ -1,8 +1,9 @@
 """LLM 调用封装：所有请求都经由 complete_json，统一处理 JSON 解析、重试和开发模式日志。"""
 
+import functools
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from openai import OpenAI
@@ -20,6 +21,8 @@ class LLMError(Exception):
 
 
 class LLMClient(Protocol):
+    """模型客户端的最小接口。测试里换成 FakeLLM，就能在不联网的情况下检查每个请求的内容。"""
+
     model: str
 
     def chat(self, messages: list[dict], **params) -> str: ...
@@ -40,8 +43,19 @@ class DeepSeekClient:
         return response.choices[0].message.content or ""
 
 
+@functools.lru_cache(maxsize=4)
+def deepseek_client(api_key: str, base_url: str, model: str) -> DeepSeekClient:
+    """按配置复用客户端。每个 OpenAI 客户端自带一个 httpx 连接池，每次请求都新建的话
+    连接池不会被关闭，连接也无法复用；配置改了（key、地址、模型）自然得到新客户端。"""
+    return DeepSeekClient(api_key, base_url, model)
+
+
 def complete_json(client: LLMClient, kind: str, messages: list[dict], meta: dict, validate) -> dict:
-    """发送请求并解析 JSON；内容不合格时重试一次。validate(data) 不合格时抛 ValueError。"""
+    """发送请求并解析 JSON；内容不合格时重试一次。validate(data) 不合格时抛 ValueError。
+
+    只对"返回了但内容不合格"重试：这类问题换一次采样通常就好了。网络错误、鉴权失败
+    直接报错，交给用户决定是否重试，避免静默地多花钱。不合格的结果绝不写入缓存。
+    """
     last_error: Exception | None = None
     for _attempt in range(2):
         _log_request(client, kind, messages, meta)
@@ -65,7 +79,7 @@ def _log_request(client: LLMClient, kind: str, messages: list[dict], meta: dict)
         return
     # 只记录请求内容，不记录 key 和请求头
     record = {
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(UTC).isoformat(),
         "kind": kind,
         **meta,
         "model": client.model,

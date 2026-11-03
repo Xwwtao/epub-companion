@@ -1,3 +1,6 @@
+import pytest
+
+from app import books
 from tests import epub_builder
 
 
@@ -66,3 +69,33 @@ def test_index_page_is_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "书架" in res.text
+
+
+@pytest.mark.parametrize(
+    ("media_type", "suffix"),
+    [("image/jpeg", ".jpg"), ("image/jpg", ".jpg"), ("IMAGE/PNG", ".png"), ("image/x-unknown", ".img")],
+)
+def test_cover_extension_from_media_type(tmp_path, media_type, suffix):
+    # 非标准的 image/jpg 很常见；存成 .img 的话封面接口会以 application/octet-stream 返回
+    path = books._save_cover((b"data", media_type), tmp_path, "stem")
+    assert path.suffix == suffix
+    assert path.read_bytes() == b"data"
+
+
+def test_health_reports_whether_llm_is_configured(client, monkeypatch):
+    assert client.get("/api/health").json() == {"status": "ok", "llm_configured": False}
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    assert client.get("/api/health").json() == {"status": "ok", "llm_configured": True}
+
+
+def test_pages_and_their_assets_are_served(client):
+    # 前端没有构建步骤，页面引用的脚本和样式写错路径时只能靠这个测试发现
+    import re
+
+    for page in ("/", "/book.html", "/summary.html"):
+        res = client.get(page)
+        assert res.status_code == 200, page
+        assets = re.findall(r'(?:src|href)="((?:js/)?[\w.-]+\.(?:js|css))"', res.text)
+        assert assets, page
+        for asset in assets:
+            assert client.get(f"/{asset}").status_code == 200, f"{page} 引用的 {asset} 不存在"

@@ -7,15 +7,16 @@ EPUB 读书伴侣：导入 EPUB、设置阅读进度，基于已读章节生成�
 ## 常用命令
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # 运行时依赖在 requirements.txt
 cp .env.example .env                 # 配置全部走环境变量，见 app/config.py
 
 .venv/bin/python -m app              # 启动，读取 HOST/PORT；APP_ENV=development 时自动 reload
 .venv/bin/pytest                     # 全部测试
 .venv/bin/pytest tests/test_epub_parser.py::test_anchors_split_and_span_files   # 单个测试
+.venv/bin/ruff format . && .venv/bin/ruff check .   # 格式化和静态检查，配置在 pyproject.toml
 ```
 
-没有构建步骤：前端是 `app/static/` 下的静态 HTML + 原生 JS，由 FastAPI 在 `/` 挂载提供。
+没有构建步骤：前端是 `app/static/` 下的静态 HTML + 原生 JS，由 FastAPI 在 `/` 挂载提供。部署见 `Dockerfile`（数据落在挂载的 `/data`）。
 
 ## 防剧透约束（改代码前必读）
 
@@ -33,6 +34,8 @@ cp .env.example .env                 # 配置全部走环境变量，见 app/con
 - 逐章摘要（`app/summaries.py`）由前端循环调用 `POST .../summaries/next` 一次生成一章，因为后一章要用前面章节的摘要和人物名单（`merge_names`）作上下文。人物名单只在内部使用，接口不返回 `names`。
 - 整体回顾（`app/recap.py`）只用逐章摘要，不读原文；逐章摘要没补齐时不生成。缓存键是"进度 N + 参与各章 `(chapter_id, 摘要内容)` 的哈希"（不用版本号：摘要删掉重建时版本号会从 1 重来，会撞上旧缓存），所以进度变化、勾选跳过、重新生成任一章摘要都会自然失效，不需要手动清缓存。"上次读到哪"直接取最近两个已读章节的摘要，不调用模型。
 - 为以后的登录预留了 `user_id`，v1 固定为 `DEFAULT_USER_ID = 1`，查询时都带上这个条件。
+- 前端：三个页面（`index.html` 书架、`book.html` 章节与进度、`summary.html` 前情提要）各对应 `static/js/` 下一个脚本，共用 `js/common.js`（`api()`、`el()`、主题和字号设置、toast、确认框）。所有请求经由 `api()`，后端地址取自页面的 `<meta name="api-base">`（默认同源；分开部署时配合后端 `CORS_ORIGINS`）。插入 EPUB 或模型返回的文本一律用 `el()`/`textContent`，不要拼 HTML。颜色都是 `style.css` 里的 CSS 变量，主题只换变量。
+- `GET /api/health` 返回是否配置了模型 key，前端据此提示，不等到生成时才报 503。
 
 ## 测试
 

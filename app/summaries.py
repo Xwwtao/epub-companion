@@ -36,7 +36,11 @@ def list_summaries(conn: sqlite3.Connection, book_id: int) -> dict:
 
 
 def generate_next(conn: sqlite3.Connection, client: LLMClient, book_id: int) -> dict:
-    """生成下一个缺失的章节摘要；前端循环调用直到 missing 为 0。"""
+    """生成下一个缺失的章节摘要；前端循环调用直到 missing 为 0。
+
+    一次只生成一章，而不是开后台任务：后一章依赖前面章节的摘要作上下文，必须按顺序来；
+    这样做天然有进度显示，中途关掉页面也不会丢掉已生成的章节。
+    """
     readable = readable_chapters(conn, book_id)
     stored = load_summaries(conn, readable)
     missing = [ch for ch in readable if ch.id not in stored]
@@ -55,36 +59,61 @@ def regenerate(conn: sqlite3.Connection, client: LLMClient, book_id: int, number
 
 
 def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: dict, target) -> dict:
+    recent, roster = _context_for(target, readable, stored)
+    result = _summarize(client, book_id, target, recent, roster)
+    names = _drop_invented_originals(_normalize_names(result["names"]), target.text)
+    _save_summary(conn, target, result, names, client.model)
+    saved = load_summaries(conn, [target])[target.id]
+    return {"number": target.number, "title": target.title, "parent_titles": target.parent_titles, **_public(saved)}
+
+
+def _context_for(target, readable: list[ReadableChapter], stored: dict) -> tuple[list[tuple[str, str]], list[dict]]:
+    """生成第 k 章用的上下文：最近 K 章摘要 + 第 1 ~ k-1 章合并的人物名单。
+
+    只看 target 之前的章节，这样重新生成某章时，后面章节已有的摘要和人名不会被带进来。
+    """
     prior = [(ch, stored[ch.id]) for ch in readable if ch.number < target.number and ch.id in stored]
     k = get_settings().summary_context_chapters
-    recent = [(prompts.chapter_label(ch.parent_titles, ch.title), s["summary"]) for ch, s in prior[-k:]] if k > 0 else []
+    recent_prior = prior[-k:] if k > 0 else []
+    recent = [(prompts.chapter_label(ch.parent_titles, ch.title), s["summary"]) for ch, s in recent_prior]
     roster = merge_names(s["names"] for _, s in prior)
+    return recent, roster
 
+
+def _summarize(client, book_id: int, target: ReadableChapter, recent, roster) -> dict:
+    """单章直接摘要；超长章节先逐块摘要（每块带同样的上下文），再合并成一章。"""
     label = prompts.chapter_label(target.parent_titles, target.title)
     meta = {"book_id": book_id, "chapter": target.number}
     chunks = split_text(target.text, MAX_CHAPTER_CHARS)
     if len(chunks) == 1:
-        result = complete_json(
-            client, "chapter", prompts.chapter_messages(label, target.text, recent, roster), meta, validate_summary
+        messages = prompts.chapter_messages(label, target.text, recent, roster)
+        return complete_json(client, "chapter", messages, meta, validate_summary)
+    parts = [
+        complete_json(
+            client,
+            "chunk",
+            prompts.chunk_messages(label, chunk, i, len(chunks), recent, roster),
+            {**meta, "chunk": i},
+            validate_summary,
         )
-    else:
-        parts = [
-            complete_json(
-                client,
-                "chunk",
-                prompts.chunk_messages(label, chunk, i, len(chunks), recent, roster),
-                {**meta, "chunk": i},
-                validate_summary,
-            )
-            for i, chunk in enumerate(chunks, start=1)
-        ]
-        result = complete_json(client, "merge", prompts.merge_messages(label, parts, roster), meta, validate_summary)
+        for i, chunk in enumerate(chunks, start=1)
+    ]
+    return complete_json(client, "merge", prompts.merge_messages(label, parts, roster), meta, validate_summary)
 
-    names = _normalize_names(result["names"])
-    # 外文原名必须真的出现在本章原文里，否则是模型凭记忆补的，不能进入人物名单
+
+def _drop_invented_originals(names: list[dict], text: str) -> list[dict]:
+    # 外文原名必须真的出现在本章原文里，否则是模型凭记忆补的（等于泄露了它对这本书的了解），
+    # 不能进入人物名单，否则会通过上下文一路传给后续章节
     for p in names:
-        if p["original"] and p["original"] not in target.text:
+        if p["original"] and p["original"] not in text:
             p["original"] = ""
+    return names
+
+
+def _save_summary(
+    conn: sqlite3.Connection, target: ReadableChapter, result: dict, names: list[dict], model: str
+) -> None:
+    # 同一章只保留一条摘要；重新生成时覆盖并让 version + 1
     conn.execute(
         """
         INSERT INTO chapter_summaries (chapter_id, summary, ending_state, names, model)
@@ -93,12 +122,15 @@ def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: di
             summary = excluded.summary, ending_state = excluded.ending_state, names = excluded.names,
             model = excluded.model, version = chapter_summaries.version + 1, created_at = CURRENT_TIMESTAMP
         """,
-        (target.id, result["summary"].strip(), result["ending_state"].strip(),
-         json.dumps(names, ensure_ascii=False), client.model),
+        (
+            target.id,
+            result["summary"].strip(),
+            result["ending_state"].strip(),
+            json.dumps(names, ensure_ascii=False),
+            model,
+        ),
     )
     conn.commit()
-    saved = load_summaries(conn, [target])[target.id]
-    return {"number": target.number, "title": target.title, "parent_titles": target.parent_titles, **_public(saved)}
 
 
 def validate_summary(data) -> None:
@@ -126,13 +158,16 @@ def merge_names(names_lists) -> list[dict]:
         for person in names:
             existing = next(
                 (
-                    r for r in roster
+                    r
+                    for r in roster
                     if person["name"] == r["name"] or person["name"] in r["aliases"] or r["name"] in person["aliases"]
                 ),
                 None,
             )
             if existing is None:
-                roster.append({"name": person["name"], "aliases": list(person["aliases"]), "original": person["original"]})
+                roster.append(
+                    {"name": person["name"], "aliases": list(person["aliases"]), "original": person["original"]}
+                )
                 continue
             aliases = [*existing["aliases"], existing["name"], *person["aliases"]]
             existing["name"] = person["name"]
@@ -142,6 +177,7 @@ def merge_names(names_lists) -> list[dict]:
 
 
 def split_text(text: str, limit: int) -> list[str]:
+    """按行切块，尽量不把一段话切成两半；只有单行就超长时才硬切。"""
     if len(text) <= limit:
         return [text]
     chunks: list[str] = []
@@ -168,11 +204,13 @@ def _normalize_names(names: list[dict]) -> list[dict]:
     for p in names:
         aliases = p.get("aliases") if isinstance(p.get("aliases"), list) else []
         original = p.get("original") if isinstance(p.get("original"), str) else ""
-        result.append({
-            "name": p["name"].strip(),
-            "aliases": [a.strip() for a in aliases if isinstance(a, str) and a.strip()],
-            "original": original.strip(),
-        })
+        result.append(
+            {
+                "name": p["name"].strip(),
+                "aliases": [a.strip() for a in aliases if isinstance(a, str) and a.strip()],
+                "original": original.strip(),
+            }
+        )
     return result
 
 

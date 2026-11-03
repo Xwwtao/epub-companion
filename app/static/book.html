@@ -1,82 +1,47 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
+<title>章节与进度 · 读书伴侣</title>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>章节</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 前端单独部署时填后端地址，如 https://api.example.com；同源部署留空 -->
+<meta name="api-base" content="">
+<meta name="theme-color" content="#f6f2ea">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239a5b2f'/%3E%3Cpath d='M9 9h9a5 5 0 0 1 5 5v9h-9a5 5 0 0 1-5-5z' fill='none' stroke='%23fffaf3' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<!-- 在样式生效前应用主题和字号，避免刷新时先闪一下默认主题 -->
+<script>
+try {
+  var d = document.documentElement, get = function (k, v) { var r = localStorage.getItem("ec." + k); return r === null ? v : JSON.parse(r); };
+  if (get("theme", "auto") !== "auto") d.dataset.theme = get("theme", "auto");
+  d.style.setProperty("--read-size", get("fontSize", 18) + "px");
+  if (get("veilUnread", true)) d.classList.add("veil-unread");
+} catch (e) {}
+</script>
+<script src="js/common.js"></script>
+<script src="js/book.js" defer></script>
 </head>
 <body>
-<p><a href="/">← 书架</a> · <a id="summary-link">前情提要</a></p>
-<div id="book"></div>
-<ol id="chapters"></ol>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="返回书架">
+    <span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h8a6 6 0 0 1 6 6v8h-8a6 6 0 0 1-6-6z"/></svg></span>
+    读书伴侣
+  </a>
+  <nav class="crumb" aria-label="当前位置"><span class="sep">/</span><span class="here" id="crumb-title">章节与进度</span></nav>
+  <span class="spacer"></span>
+  <button class="btn btn-ghost btn-icon" id="settings-btn" type="button" aria-label="阅读设置" aria-expanded="false" title="阅读设置">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+  </button>
+</header>
 
-<script src="app.js"></script>
-<script>
-const bookId = new URLSearchParams(location.search).get("id");
-document.getElementById("summary-link").href = `summary.html?id=${bookId}`;
+<main class="page">
+  <section class="book-hero" id="hero"></section>
 
-async function render() {
-  let book;
-  try {
-    book = await api(`/api/books/${bookId}`);
-  } catch (err) {
-    document.getElementById("book").textContent = err.message;
-    return;
-  }
-  document.title = book.title;
-  const header = document.getElementById("book");
-  header.replaceChildren(
-    book.has_cover ? el("img", { src: `/api/books/${book.id}/cover`, class: "cover", alt: "" }) : "",
-    el("h1", {}, book.title),
-    el("p", {}, book.author || "未知作者"),
-    el("p", {}, el("strong", {}, `正在读第 ${book.current_chapter} 章 / 共 ${book.chapter_count} 章`),
-      `（第 1 ~ ${book.current_chapter - 1} 章算已读）`),
-  );
-
-  const list = document.getElementById("chapters");
-  list.replaceChildren();
-  for (const ch of book.chapters) {
-    const label = [...ch.parent_titles, ch.title].join(" · ");
-    const state = ch.number < book.current_chapter ? "read"
-      : ch.number === book.current_chapter ? "current" : "unread";
-
-    const readBtn = el("button", {}, "正在读这一章");
-    readBtn.disabled = state === "current";
-    readBtn.onclick = () => update(`/api/books/${book.id}/progress`, { chapter: ch.number });
-
-    const skip = el("input", { type: "checkbox" });
-    skip.checked = ch.skipped;
-    skip.onchange = () => update(`/api/books/${book.id}/chapters/${ch.number}/skipped`, { skipped: skip.checked });
-
-    list.append(el("li", { class: state },
-      el("span", { class: "label" }, label),
-      state === "current" ? el("span", { class: "tag" }, "正在读") : "",
-      state === "unread" ? el("span", { class: "tag" }, "未读") : "",
-      ch.mentions_book_info
-        ? el("span", { class: ch.skipped ? "tag" : "tag warn", title: "这一页含书名和作者，不跳过的话会随正文发给模型" },
-            ch.skipped ? "含书名/作者" : "含书名/作者，建议跳过")
-        : "",
-      " ", readBtn, " ",
-      el("label", {}, skip, "跳过（非正文）"),
-    ));
-  }
-}
-
-async function update(path, body) {
-  try {
-    await api(path, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    alert(err.message);
-  }
-  render();
-}
-
-render();
-</script>
+  <div class="toolbar">
+    <span id="toolbar-text">点"从这里读"设置你正在读的章节；序言、版权页这类非正文可以跳过。</span>
+    <label class="switch"><input type="checkbox" id="veil-toggle">模糊未读标题</label>
+  </div>
+  <div id="chapters"></div>
+</main>
 </body>
 </html>

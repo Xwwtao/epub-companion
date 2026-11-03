@@ -8,15 +8,18 @@ from typing import BinaryIO
 
 from app.config import get_settings
 from app.db import DEFAULT_USER_ID
-from app.epub_parser import parse_epub
-
+from app.epub_parser import ParsedBook, ParsedChapter, parse_epub
 
 # 正文同时含书名和作者、且不超过这个字数的页面（版权页、扉页之类）导入时默认跳过，
 # 避免书名随正文发给模型（spec §2）。更长的页面只在界面上提醒。
 AUTO_SKIP_MAX_CHARS = 3000
 
+# EPUB 里常见、但 mimetypes 不认识的非标准写法。扩展名决定了封面接口返回的 Content-Type
+NONSTANDARD_IMAGE_TYPES = {"image/jpg": ".jpg", "image/pjpeg": ".jpg", "image/x-png": ".png"}
+
 
 def mentions_book_info(text: str, title: str, author: str | None) -> bool:
+    # 要求书名和作者同时出现：只出现书名的正文很常见（人物提到书名、章节标题重复），不该被标记
     if not author:
         return False
     # 去掉国籍、"著"之类的修饰，如 "(日)东野圭吾 著" → "东野圭吾"
@@ -25,46 +28,20 @@ def mentions_book_info(text: str, title: str, author: str | None) -> bool:
 
 
 def import_book(conn: sqlite3.Connection, upload: BinaryIO) -> int:
+    """保存上传的 EPUB 并解析入库，返回 book_id。
+
+    任何一步失败都回滚数据库并删掉已写出的文件，不留下半本书。
+    """
     settings = get_settings()
-    stem = uuid.uuid4().hex
+    stem = uuid.uuid4().hex  # 文件名不用书名：书名可能含路径字符，也可能重名
     epub_path = settings.books_dir / f"{stem}.epub"
-    with epub_path.open("wb") as f:
-        while chunk := upload.read(1024 * 1024):
-            f.write(chunk)
+    _save_upload(upload, epub_path)
 
     cover_path: Path | None = None
     try:
         parsed = parse_epub(epub_path)
-        if parsed.cover:
-            content, media_type = parsed.cover
-            ext = mimetypes.guess_extension(media_type) or ".img"
-            cover_path = settings.covers_dir / f"{stem}{ext}"
-            cover_path.write_bytes(content)
-
-        cur = conn.execute(
-            "INSERT INTO books (user_id, title, author, file_path, cover_path) VALUES (?, ?, ?, ?, ?)",
-            (
-                DEFAULT_USER_ID,
-                parsed.title,
-                parsed.author,
-                str(epub_path.relative_to(settings.data_dir)),
-                str(cover_path.relative_to(settings.data_dir)) if cover_path else None,
-            ),
-        )
-        book_id = cur.lastrowid
-        rows = []
-        for number, ch in enumerate(parsed.chapters, start=1):
-            mentions = mentions_book_info(ch.text, parsed.title, parsed.author)
-            skipped = mentions and len(ch.text) <= AUTO_SKIP_MAX_CHARS
-            rows.append((
-                book_id, number, ch.title, json.dumps(ch.parent_titles, ensure_ascii=False), ch.start_href,
-                int(mentions), int(skipped), ch.text,
-            ))
-        conn.executemany(
-            "INSERT INTO chapters (book_id, number, title, parent_titles, start_href,"
-            " mentions_book_info, skipped, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
+        cover_path = _save_cover(parsed.cover, settings.covers_dir, stem)
+        book_id = _insert_book(conn, parsed, epub_path, cover_path)
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -75,27 +52,71 @@ def import_book(conn: sqlite3.Connection, upload: BinaryIO) -> int:
     return book_id
 
 
+def _save_upload(upload: BinaryIO, path: Path) -> None:
+    # 分块写盘，避免整本书读进内存
+    with path.open("wb") as f:
+        while chunk := upload.read(1024 * 1024):
+            f.write(chunk)
+
+
+def _save_cover(cover: tuple[bytes, str] | None, covers_dir: Path, stem: str) -> Path | None:
+    if not cover:
+        return None
+    content, media_type = cover
+    media_type = media_type.lower()
+    ext = mimetypes.guess_extension(media_type) or NONSTANDARD_IMAGE_TYPES.get(media_type, ".img")
+    path = covers_dir / f"{stem}{ext}"
+    path.write_bytes(content)
+    return path
+
+
+def _insert_book(conn: sqlite3.Connection, parsed: ParsedBook, epub_path: Path, cover_path: Path | None) -> int:
+    data_dir = get_settings().data_dir
+    # 库里存相对 DATA_DIR 的路径，数据目录整体搬家后仍然可用
+    cur = conn.execute(
+        "INSERT INTO books (user_id, title, author, file_path, cover_path) VALUES (?, ?, ?, ?, ?)",
+        (
+            DEFAULT_USER_ID,
+            parsed.title,
+            parsed.author,
+            str(epub_path.relative_to(data_dir)),
+            str(cover_path.relative_to(data_dir)) if cover_path else None,
+        ),
+    )
+    book_id = cur.lastrowid
+    conn.executemany(
+        "INSERT INTO chapters (book_id, number, title, parent_titles, start_href,"
+        " mentions_book_info, skipped, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [_chapter_row(book_id, number, ch, parsed) for number, ch in enumerate(parsed.chapters, start=1)],
+    )
+    return book_id
+
+
+def _chapter_row(book_id: int, number: int, ch: ParsedChapter, parsed: ParsedBook) -> tuple:
+    mentions = mentions_book_info(ch.text, parsed.title, parsed.author)
+    skipped = mentions and len(ch.text) <= AUTO_SKIP_MAX_CHARS
+    parent_titles = json.dumps(ch.parent_titles, ensure_ascii=False)
+    return (book_id, number, ch.title, parent_titles, ch.start_href, int(mentions), int(skipped), ch.text)
+
+
+# 书架和详情共用的书籍字段。章节数用子查询现算，不单独存，删改章节时不会对不上
+_BOOK_SELECT = """
+    SELECT b.id, b.title, b.author, b.current_chapter, b.cover_path IS NOT NULL AS has_cover,
+           (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) AS chapter_count
+    FROM books b
+"""
+
+
 def list_books(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
-        """
-        SELECT b.id, b.title, b.author, b.current_chapter, b.cover_path IS NOT NULL AS has_cover,
-               (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) AS chapter_count
-        FROM books b WHERE b.user_id = ? ORDER BY b.created_at DESC, b.id DESC
-        """,
+        _BOOK_SELECT + " WHERE b.user_id = ? ORDER BY b.created_at DESC, b.id DESC",
         (DEFAULT_USER_ID,),
     ).fetchall()
     return [_book_dict(row) for row in rows]
 
 
 def get_book(conn: sqlite3.Connection, book_id: int) -> dict | None:
-    row = conn.execute(
-        """
-        SELECT b.id, b.title, b.author, b.current_chapter, b.cover_path IS NOT NULL AS has_cover,
-               (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) AS chapter_count
-        FROM books b WHERE b.id = ? AND b.user_id = ?
-        """,
-        (book_id, DEFAULT_USER_ID),
-    ).fetchone()
+    row = conn.execute(_BOOK_SELECT + " WHERE b.id = ? AND b.user_id = ?", (book_id, DEFAULT_USER_ID)).fetchone()
     if row is None:
         return None
     book = _book_dict(row)
@@ -116,6 +137,14 @@ def get_book(conn: sqlite3.Connection, book_id: int) -> dict | None:
         for ch in chapters
     ]
     return book
+
+
+def get_current_chapter(conn: sqlite3.Connection, book_id: int) -> int | None:
+    """只取进度，不查章节列表；书不存在返回 None。"""
+    row = conn.execute(
+        "SELECT current_chapter FROM books WHERE id = ? AND user_id = ?", (book_id, DEFAULT_USER_ID)
+    ).fetchone()
+    return None if row is None else row["current_chapter"]
 
 
 class InvalidProgress(ValueError):

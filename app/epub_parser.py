@@ -22,11 +22,14 @@ from lxml import etree
 
 logger = logging.getLogger(__name__)
 
+# 这些标签前后断行，其余（span、em 等行内标签）不打断段落
+# fmt: off
 BLOCK_TAGS = {
     "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt",
     "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6",
     "header", "hr", "li", "ol", "p", "pre", "section", "table", "tr", "ul",
 }
+# fmt: on
 SKIP_TAGS = {"script", "style", "head", "title"}
 NON_TEXT_STRINGS = (Comment, CData, ProcessingInstruction, Declaration, Doctype)
 FONT_EXTENSIONS = (".ttf", ".otf", ".woff", ".woff2")
@@ -62,7 +65,11 @@ class _TocEntry:
 
 
 class _TextStream:
-    """把整本书按 spine 顺序拼成一串文本片段，并记下每个锚点所在的片段下标。"""
+    """把整本书按 spine 顺序拼成一串文本片段，并记下每个文件起点和锚点所在的片段下标。
+
+    目录项可能指向文件中间的锚点，一章也可能跨好几个文件。先把全书摊平成一条"坐标轴"，
+    章节就统一成"从下标 a 到下标 b"的切片，不必分别处理同文件多章、跨文件等情况。
+    """
 
     def __init__(self) -> None:
         self.parts: list[str] = []
@@ -77,6 +84,7 @@ class _TextStream:
             if isinstance(node, Tag):
                 if node.name in BLOCK_TAGS:
                     self.parts.append("\n")
+                # 旧书常用 <a name="..."> 做锚点；同名锚点以第一次出现的为准
                 for attr in ("id", "name"):
                     anchor = node.get(attr)
                     if anchor:
@@ -91,12 +99,29 @@ class _TextStream:
 
 
 def parse_epub(path: Path) -> ParsedBook:
+    """解析 EPUB；无法导入时抛 EpubError（消息可直接展示给用户）。"""
+    # 先查 DRM：加密的正文 ebooklib 也能"读"出来，只是全是乱码，必须在这之前拦下
     _check_drm(path)
     try:
-        book = epub.read_epub(str(path), options={"ignore_ncx": True})
+        # 自己打开文件再交给 ebooklib：它只在解析成功时关闭 zip，失败时句柄会一直挂在异常上，
+        # 导入失败后立刻删除文件就会失败（Windows 上）
+        with path.open("rb") as f:
+            # ignore_ncx：有 EPUB3 nav 时只用 nav（通常更完整）；没有 nav 时 ebooklib 仍会读 NCX
+            book = epub.read_epub(f, options={"ignore_ncx": True})
     except Exception as e:
         raise EpubError(f"EPUB 解析失败：{e}") from e
 
+    try:
+        return _build_book(book, path)
+    except EpubError:
+        raise
+    except Exception as e:
+        # 各家 EPUB 千奇百怪，解析中途的任何意外都给出明确提示，而不是 500
+        logger.exception("解析 EPUB 内容时出错：%s", path.name)
+        raise EpubError(f"EPUB 内容无法识别：{e}") from e
+
+
+def _build_book(book: epub.EpubBook, path: Path) -> ParsedBook:
     stream = _TextStream()
     for item in _spine_html_items(book):
         stream.add_file(item.file_name, item.content)
@@ -145,6 +170,8 @@ def _spine_html_items(book: epub.EpubBook):
 
 
 def _flatten_toc(nodes, parents: list[str]):
+    """展平目录。叶子节点成章；带链接的父节点（如卷首页）只产出一个非叶子边界，
+    让上一章在这里结束，卷名和卷首语就不会混进上一章末尾。"""
     for node in nodes:
         if isinstance(node, tuple):
             section, children = node
@@ -162,23 +189,8 @@ def _flatten_toc(nodes, parents: list[str]):
 
 
 def _chapters_from_toc(book, entries: list[_TocEntry], stream: _TextStream) -> list[ParsedChapter]:
-    file_names = {file for file, anchor in stream.positions if anchor is None}
-    ncx_dir = _ncx_dir(book)
-
-    located: list[tuple[_TocEntry, int]] = []
-    for entry in entries:
-        file_part, _, fragment = entry.href.partition("#")
-        file_name = _resolve_file(unquote(file_part), file_names, ncx_dir)
-        if file_name is None:
-            logger.warning("目录项指向的文件不在正文里，已忽略：%s (%s)", entry.title, entry.href)
-            continue
-        position = stream.positions.get((file_name, unquote(fragment))) if fragment else None
-        if position is None:
-            if fragment:
-                logger.warning("找不到锚点，退化为整个文件起始处：%s (%s)", entry.title, entry.href)
-            position = stream.positions[(file_name, None)]
-        located.append((entry, position))
-
+    located = _locate_entries(book, entries, stream)
+    # 所有目录项（含带链接的父节点）都是边界；章节到下一个边界为止
     boundaries = sorted({position for _, position in located})
     chapters = []
     for entry, start in located:
@@ -196,7 +208,28 @@ def _chapters_from_toc(book, entries: list[_TocEntry], stream: _TextStream) -> l
     return chapters
 
 
+def _locate_entries(book, entries: list[_TocEntry], stream: _TextStream) -> list[tuple[_TocEntry, int]]:
+    """把目录项的 href#anchor 换算成文本流里的下标；找不到文件的目录项丢弃。"""
+    file_names = {file for file, anchor in stream.positions if anchor is None}
+    ncx_dir = _ncx_dir(book)
+    located: list[tuple[_TocEntry, int]] = []
+    for entry in entries:
+        file_part, _, fragment = entry.href.partition("#")
+        file_name = _resolve_file(unquote(file_part), file_names, ncx_dir)
+        if file_name is None:
+            logger.warning("目录项指向的文件不在正文里，已忽略：%s (%s)", entry.title, entry.href)
+            continue
+        position = stream.positions.get((file_name, unquote(fragment))) if fragment else None
+        if position is None:
+            if fragment:
+                logger.warning("找不到锚点，退化为整个文件起始处：%s (%s)", entry.title, entry.href)
+            position = stream.positions[(file_name, None)]
+        located.append((entry, position))
+    return located
+
+
 def _chapters_from_spine(book, stream: _TextStream) -> list[ParsedChapter]:
+    """没有可用目录时的回退：每个 spine 文件一章，空文件（如只有插图）跳过。"""
     starts = [(file, pos) for (file, anchor), pos in stream.positions.items() if anchor is None]
     starts.sort(key=lambda fp: fp[1])
     chapters = []
@@ -270,5 +303,6 @@ def _clean_title(title: str | None) -> str:
 
 
 def _normalize(text: str) -> str:
+    # 中文排版常用全角空格缩进，和普通空白一起压缩掉；空行全部去掉，摘要和切块都按行处理
     lines = (re.sub(r"[ \t 　]+", " ", line).strip() for line in text.split("\n"))
     return "\n".join(line for line in lines if line)

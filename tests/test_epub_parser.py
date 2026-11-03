@@ -1,7 +1,11 @@
+import os
 import re
+import zipfile
+from pathlib import Path
 
 import pytest
 
+from app import epub_parser
 from app.epub_parser import EpubError, parse_epub
 from tests import epub_builder
 from tests.epub_builder import marker
@@ -103,3 +107,38 @@ def test_drm_is_rejected(epubs, tmp_path):
 def test_font_obfuscation_is_allowed(epubs, tmp_path):
     path = epub_builder.with_encryption(epubs["nested_zh"], tmp_path / "font.epub", "EPUB/fonts/a.ttf")
     assert len(parse_epub(path).chapters) == 7
+
+
+def _open_fds_for(path) -> list[str]:
+    fd_dir = Path("/proc/self/fd")
+    targets = []
+    for fd in fd_dir.iterdir():
+        try:
+            targets.append(os.readlink(fd))
+        except OSError:
+            continue
+    return [t for t in targets if t == str(path)]
+
+
+@pytest.mark.skipif(not Path("/proc/self/fd").exists(), reason="需要 /proc 文件系统")
+def test_failed_parse_does_not_keep_file_open(tmp_path):
+    # zip 本身合法但缺少 container.xml：ebooklib 会在关闭 zip 之前抛错。
+    # 导入失败时要立刻删掉这个文件，句柄还开着的话 Windows 上删不掉
+    path = tmp_path / "broken.epub"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+    with pytest.raises(EpubError) as excinfo:
+        parse_epub(path)
+    # 异常对象还活着（等同于 import_book 的 except 分支里），文件也必须已经关闭
+    assert excinfo.value is not None
+    assert _open_fds_for(path) == []
+
+
+def test_unexpected_errors_become_epub_error(epubs, monkeypatch):
+    # 解析过程中任何意外异常都要变成可展示的 EpubError，而不是 500
+    def boom(_book):
+        raise RuntimeError("坏掉的封面")
+
+    monkeypatch.setattr(epub_parser, "_find_cover", boom)
+    with pytest.raises(EpubError, match="坏掉的封面"):
+        parse_epub(epubs["nested_zh"])

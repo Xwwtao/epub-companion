@@ -18,6 +18,7 @@ def recap_calls(fake):
 
 # ---- 整体回顾 ----
 
+
 def test_recap_uses_only_read_summaries_not_text(client, fake_llm, book_id):
     set_progress(client, book_id, 5)
     generate_all(client, book_id)
@@ -134,6 +135,7 @@ def test_recap_group():
 
 
 # ---- 上次读到哪 ----
+
 
 def test_last_read_shows_two_latest_without_llm(client, fake_llm, book_id):
     set_progress(client, book_id, 5)

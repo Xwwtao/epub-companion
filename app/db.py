@@ -59,6 +59,7 @@ def connect() -> sqlite3.Connection:
     # 每个请求一个连接；FastAPI 的依赖和接口可能跑在线程池的不同线程上
     conn = sqlite3.connect(settings.db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    # SQLite 默认不执行外键约束；删书时要靠 ON DELETE CASCADE 连带删掉章节、摘要和回顾
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
@@ -77,7 +78,7 @@ def init_db() -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    # 旧库补列；新列都带默认值
+    # CREATE TABLE IF NOT EXISTS 不会给已有的表加列，旧库要手动补；新列都带默认值
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(chapters)")}
     if "mentions_book_info" not in columns:
         conn.execute("ALTER TABLE chapters ADD COLUMN mentions_book_info INTEGER NOT NULL DEFAULT 0")

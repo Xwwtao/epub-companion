@@ -35,3 +35,15 @@ def test_production_does_not_log(client, fake_llm, book_id, data_dir):
     client.post(f"/api/books/{book_id}/summaries/next")
     assert len(fake_llm.calls) == 1
     assert not (data_dir / "logs").exists()
+
+
+def test_real_client_is_reused_until_config_changes(data_dir, monkeypatch):
+    from app.main import get_llm
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", SECRET)
+    first = get_llm()
+    assert get_llm() is first  # 每个请求都新建客户端会泄漏连接池
+
+    monkeypatch.setenv("DEEPSEEK_MODEL", "another-model")
+    assert get_llm() is not first
+    assert get_llm().model == "another-model"

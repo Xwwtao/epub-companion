@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from app import books, db, recap, summaries
 from app.config import get_settings
 from app.epub_parser import EpubError
-from app.llm import DeepSeekClient, LLMClient, LLMError
+from app.llm import LLMClient, LLMError, deepseek_client
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -24,13 +25,31 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="EPUB 读书伴侣", lifespan=lifespan)
 
+# 默认前后端同源（静态页面由本服务提供），不需要 CORS。前端单独部署到别的域名时，
+# 在 CORS_ORIGINS 里列出它的地址；允许携带 Cookie，为以后的登录预留
+if _cors_origins := get_settings().cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(_cors_origins),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 def get_conn() -> Iterator[sqlite3.Connection]:
+    # 每个请求一个连接，请求结束就关；SQLite 连接很便宜，这样不用操心跨线程共享
     conn = db.connect()
     try:
         yield conn
     finally:
         conn.close()
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """存活检查，供部署时的负载均衡 / 监控使用；前端也用它判断能不能生成摘要。"""
+    return {"status": "ok", "llm_configured": bool(get_settings().deepseek_api_key)}
 
 
 @app.post("/api/books", status_code=201)
@@ -83,23 +102,24 @@ def set_progress(book_id: int, body: ProgressIn, conn: sqlite3.Connection = Depe
 
 
 @app.put("/api/books/{book_id}/chapters/{number}/skipped")
-def set_skipped(
-    book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict:
+def set_skipped(book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
     if not books.set_skipped(conn, book_id, number, body.skipped):
         raise HTTPException(status_code=404, detail="章节不存在")
     return books.get_book(conn, book_id)
 
 
 def get_llm() -> LLMClient:
+    """作为 FastAPI 依赖注入，测试用 dependency_overrides 换成假模型。
+    没配 key 时返回 503，而不是等到真正调用时才失败。"""
     settings = get_settings()
     if not settings.deepseek_api_key:
         raise HTTPException(status_code=503, detail="没有配置 DEEPSEEK_API_KEY")
-    return DeepSeekClient(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
+    return deepseek_client(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
 
 
 def require_book(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> int:
-    if books.get_book(conn, book_id) is None:
+    # 先确认书存在再进入生成逻辑，书不存在时不会去创建模型客户端
+    if books.get_current_chapter(conn, book_id) is None:
         raise HTTPException(status_code=404, detail="书不存在")
     return book_id
 
@@ -142,7 +162,7 @@ def get_recap(
     conn: sqlite3.Connection = Depends(get_conn),
     llm: LLMClient = Depends(get_llm),
 ) -> dict:
-    current_chapter = books.get_book(conn, book_id)["current_chapter"]
+    current_chapter = books.get_current_chapter(conn, book_id)
     try:
         return recap.get_recap(conn, llm, book_id, current_chapter)
     except LLMError as e:
