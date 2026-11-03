@@ -8,3 +8,4 @@ python-dotenv==1.2.4
 python-multipart==0.0.32
 pytest==9.1.1
 httpx==0.28.1
+ruff==0.17.3

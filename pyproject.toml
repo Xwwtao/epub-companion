@@ -1,0 +1,17 @@
+# 只放工具配置；项目依赖见 requirements.txt
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = [
+    "B008",  # FastAPI 的 Depends() 本来就写在参数默认值里
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixture 从别的测试模块导入后再作为参数名使用，属于正常写法
+"tests/*" = ["F811"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,7 +1,33 @@
-.venv/
-__pycache__/
-.pytest_cache/
+# 本地配置和密钥：.env 里有 DEEPSEEK_API_KEY，绝不入库（模板见 .env.example）
 .env
+.env.*
+!.env.example
+
+# 运行时数据：SQLite、导入的 EPUB、封面、开发日志
 data/
+*.db
+*.sqlite3
+
+# 手动验证用的真实书，有版权，不得提交
 samples/
+
+# Python 虚拟环境、缓存和构建产物
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE 和系统文件
+.idea/
+.vscode/
+*.swp
+*~
 .DS_Store
+Thumbs.db
