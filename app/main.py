@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from app import books, db, recap, summaries
 from app.config import get_settings
 from app.epub_parser import EpubError
-from app.llm import DeepSeekClient, LLMClient, LLMError
+from app.llm import LLMClient, LLMError, deepseek_client
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -96,7 +96,7 @@ def get_llm() -> LLMClient:
     settings = get_settings()
     if not settings.deepseek_api_key:
         raise HTTPException(status_code=503, detail="没有配置 DEEPSEEK_API_KEY")
-    return DeepSeekClient(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
+    return deepseek_client(settings.deepseek_api_key, settings.deepseek_base_url, settings.deepseek_model)
 
 
 def require_book(book_id: int, conn: sqlite3.Connection = Depends(get_conn)) -> int:

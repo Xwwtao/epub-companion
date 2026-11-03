@@ -1,5 +1,6 @@
 """LLM 调用封装：所有请求都经由 complete_json，统一处理 JSON 解析、重试和开发模式日志。"""
 
+import functools
 import json
 import logging
 from datetime import UTC, datetime
@@ -40,6 +41,13 @@ class DeepSeekClient:
             **params,
         )
         return response.choices[0].message.content or ""
+
+
+@functools.lru_cache(maxsize=4)
+def deepseek_client(api_key: str, base_url: str, model: str) -> DeepSeekClient:
+    """按配置复用客户端。每个 OpenAI 客户端自带一个 httpx 连接池，每次请求都新建的话
+    连接池不会被关闭，连接也无法复用；配置改了（key、地址、模型）自然得到新客户端。"""
+    return DeepSeekClient(api_key, base_url, model)
 
 
 def complete_json(client: LLMClient, kind: str, messages: list[dict], meta: dict, validate) -> dict:
