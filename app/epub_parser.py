@@ -103,11 +103,25 @@ def parse_epub(path: Path) -> ParsedBook:
     # 先查 DRM：加密的正文 ebooklib 也能"读"出来，只是全是乱码，必须在这之前拦下
     _check_drm(path)
     try:
-        # ignore_ncx：有 EPUB3 nav 时只用 nav（通常更完整）；没有 nav 时 ebooklib 仍会读 NCX
-        book = epub.read_epub(str(path), options={"ignore_ncx": True})
+        # 自己打开文件再交给 ebooklib：它只在解析成功时关闭 zip，失败时句柄会一直挂在异常上，
+        # 导入失败后立刻删除文件就会失败（Windows 上）
+        with path.open("rb") as f:
+            # ignore_ncx：有 EPUB3 nav 时只用 nav（通常更完整）；没有 nav 时 ebooklib 仍会读 NCX
+            book = epub.read_epub(f, options={"ignore_ncx": True})
     except Exception as e:
         raise EpubError(f"EPUB 解析失败：{e}") from e
 
+    try:
+        return _build_book(book, path)
+    except EpubError:
+        raise
+    except Exception as e:
+        # 各家 EPUB 千奇百怪，解析中途的任何意外都给出明确提示，而不是 500
+        logger.exception("解析 EPUB 内容时出错：%s", path.name)
+        raise EpubError(f"EPUB 内容无法识别：{e}") from e
+
+
+def _build_book(book: epub.EpubBook, path: Path) -> ParsedBook:
     stream = _TextStream()
     for item in _spine_html_items(book):
         stream.add_file(item.file_name, item.content)
