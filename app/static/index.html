@@ -1,62 +1,57 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
+<title>书架 · 读书伴侣</title>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>书架</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 前端单独部署时填后端地址，如 https://api.example.com；同源部署留空 -->
+<meta name="api-base" content="">
+<meta name="theme-color" content="#f6f2ea">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239a5b2f'/%3E%3Cpath d='M9 9h9a5 5 0 0 1 5 5v9h-9a5 5 0 0 1-5-5z' fill='none' stroke='%23fffaf3' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<!-- 在样式生效前应用主题和字号，避免刷新时先闪一下默认主题 -->
+<script>
+try {
+  var d = document.documentElement, get = function (k, v) { var r = localStorage.getItem("ec." + k); return r === null ? v : JSON.parse(r); };
+  if (get("theme", "auto") !== "auto") d.dataset.theme = get("theme", "auto");
+  d.style.setProperty("--read-size", get("fontSize", 18) + "px");
+  if (get("veilUnread", true)) d.classList.add("veil-unread");
+} catch (e) {}
+</script>
+<script src="js/common.js"></script>
+<script src="js/shelf.js" defer></script>
 </head>
 <body>
-<h1>书架</h1>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="返回书架">
+    <span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h8a6 6 0 0 1 6 6v8h-8a6 6 0 0 1-6-6z"/></svg></span>
+    读书伴侣
+  </a>
+  <span class="spacer"></span>
+  <button class="btn btn-ghost btn-icon" id="settings-btn" type="button" aria-label="阅读设置" aria-expanded="false" title="阅读设置">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+  </button>
+</header>
 
-<form id="upload">
-  <input type="file" name="file" accept=".epub" required>
-  <button type="submit">导入 EPUB</button>
-  <span id="status"></span>
-</form>
+<main class="page page-wide">
+  <section class="shelf-head">
+    <div>
+      <h1>书架</h1>
+      <p class="sub" id="shelf-sub">导入 EPUB，读到哪，提要就只讲到哪。</p>
+    </div>
+    <div class="shelf-tools">
+      <input class="search" id="search" type="search" placeholder="搜索书名或作者" aria-label="搜索书名或作者" hidden>
+      <button class="btn btn-primary" id="import-btn" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>
+        导入 EPUB
+      </button>
+      <input id="file-input" type="file" accept=".epub,application/epub+zip" multiple hidden>
+    </div>
+  </section>
 
-<ul id="books"></ul>
+  <div id="books" class="book-grid" aria-live="polite"></div>
+</main>
 
-<script src="app.js"></script>
-<script>
-const statusEl = document.getElementById("status");
-
-async function render() {
-  const list = document.getElementById("books");
-  list.replaceChildren();
-  const books = await api("/api/books");
-  if (books.length === 0) list.append(el("li", {}, "还没有书，先导入一本吧。"));
-  for (const b of books) {
-    const del = el("button", {}, "删除");
-    del.onclick = async () => {
-      if (!confirm(`删除《${b.title}》？摘要缓存也会一起删除。`)) return;
-      await api(`/api/books/${b.id}`, { method: "DELETE" });
-      render();
-    };
-    list.append(el("li", {},
-      el("a", { href: `book.html?id=${b.id}` }, b.title),
-      ` — ${b.author || "未知作者"} · 正在读第 ${b.current_chapter} 章 / 共 ${b.chapter_count} 章 `,
-      el("a", { href: `summary.html?id=${b.id}` }, "前情提要"),
-      " ",
-      del,
-    ));
-  }
-}
-
-document.getElementById("upload").onsubmit = async (e) => {
-  e.preventDefault();
-  statusEl.textContent = "导入中…";
-  try {
-    await api("/api/books", { method: "POST", body: new FormData(e.target) });
-    statusEl.textContent = "导入成功";
-    e.target.reset();
-    render();
-  } catch (err) {
-    statusEl.textContent = `导入失败：${err.message}`;
-  }
-};
-
-render();
-</script>
+<div class="drop-overlay" id="drop-overlay" aria-hidden="true">松开即可导入 EPUB</div>
 </body>
 </html>

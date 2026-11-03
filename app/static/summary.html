@@ -1,143 +1,61 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
+<title>前情提要 · 读书伴侣</title>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>前情提要</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 前端单独部署时填后端地址，如 https://api.example.com；同源部署留空 -->
+<meta name="api-base" content="">
+<meta name="theme-color" content="#f6f2ea">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%239a5b2f'/%3E%3Cpath d='M9 9h9a5 5 0 0 1 5 5v9h-9a5 5 0 0 1-5-5z' fill='none' stroke='%23fffaf3' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<!-- 在样式生效前应用主题和字号，避免刷新时先闪一下默认主题 -->
+<script>
+try {
+  var d = document.documentElement, get = function (k, v) { var r = localStorage.getItem("ec." + k); return r === null ? v : JSON.parse(r); };
+  if (get("theme", "auto") !== "auto") d.dataset.theme = get("theme", "auto");
+  d.style.setProperty("--read-size", get("fontSize", 18) + "px");
+  if (get("veilUnread", true)) d.classList.add("veil-unread");
+} catch (e) {}
+</script>
+<script src="js/common.js"></script>
+<script src="js/summary.js" defer></script>
 </head>
 <body>
-<p><a href="/">← 书架</a> · <a id="chapters-link">章节和进度</a></p>
-<h1 id="title">前情提要</h1>
-<p id="progress"></p>
-<p id="status"></p>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="返回书架">
+    <span class="brand-mark"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h8a6 6 0 0 1 6 6v8h-8a6 6 0 0 1-6-6z"/></svg></span>
+    读书伴侣
+  </a>
+  <nav class="crumb" aria-label="当前位置"><span class="sep">/</span><span class="here" id="crumb-title">前情提要</span></nav>
+  <span class="spacer"></span>
+  <button class="btn btn-ghost btn-icon" id="settings-btn" type="button" aria-label="阅读设置" aria-expanded="false" title="阅读设置">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+  </button>
+</header>
 
-<h2>上次读到哪</h2>
-<div id="last-read"></div>
+<main class="page">
+  <section class="book-hero" id="hero"></section>
+  <div id="notice"></div>
+  <div id="gen-status"></div>
 
-<h2>整体回顾</h2>
-<div id="recap"></div>
+  <section class="section" aria-labelledby="h-last">
+    <div class="section-head"><h2 id="h-last">上次读到哪</h2></div>
+    <div id="last-read"></div>
+  </section>
 
-<h2>逐章摘要</h2>
-<div id="summaries"></div>
+  <section class="section" aria-labelledby="h-recap">
+    <div class="section-head"><h2 id="h-recap">整体回顾</h2><span class="hint" id="recap-hint"></span></div>
+    <div id="recap"></div>
+  </section>
 
-<script src="app.js"></script>
-<script>
-const bookId = new URLSearchParams(location.search).get("id");
-const statusEl = document.getElementById("status");
-document.getElementById("chapters-link").href = `book.html?id=${bookId}`;
-let generating = false;
-
-async function load() {
-  const [book, data] = await Promise.all([
-    api(`/api/books/${bookId}`),
-    api(`/api/books/${bookId}/summaries`),
-  ]);
-  document.title = `前情提要 · ${book.title}`;
-  document.getElementById("title").textContent = `前情提要 · ${book.title}`;
-  document.getElementById("progress").textContent =
-    `正在读第 ${book.current_chapter} 章，以下只回顾第 1 ~ ${book.current_chapter - 1} 章。`;
-  renderSummaries(data.chapters);
-  renderLastRead(await api(`/api/books/${bookId}/last-read`));
-  return data;
-}
-
-function renderLastRead(data) {
-  const box = document.getElementById("last-read");
-  box.replaceChildren();
-  if (data.chapters.length === 0) {
-    box.append(el("p", { class: "muted" }, "还没有可回顾的内容。"));
-    return;
-  }
-  const last = data.chapters[data.chapters.length - 1];
-  if (last.ending_state) {
-    box.append(el("p", { class: "highlight" }, el("strong", {}, "你停在这里："), last.ending_state));
-  }
-  for (const ch of data.chapters) {
-    const label = [...ch.parent_titles, ch.title].join(" · ");
-    box.append(el("p", {}, el("strong", {}, label + "："), ch.summary || "等待生成…"));
-  }
-}
-
-async function loadRecap() {
-  const box = document.getElementById("recap");
-  box.replaceChildren(el("p", { class: "muted" }, "生成中…"));
-  try {
-    const data = await api(`/api/books/${bookId}/recap`);
-    box.replaceChildren();
-    if (data.status === "empty") box.append(el("p", { class: "muted" }, "还没有可回顾的内容。"));
-    else if (data.status === "incomplete") box.append(el("p", { class: "muted" }, `还有 ${data.missing} 章摘要未生成，补齐后显示整体回顾。`));
-    else for (const para of data.content.split(/\n+/)) box.append(el("p", {}, para));
-  } catch (err) {
-    box.replaceChildren(el("p", { class: "muted" }, `整体回顾生成失败：${err.message}`));
-  }
-}
-
-function renderSummaries(chapters) {
-  const box = document.getElementById("summaries");
-  box.replaceChildren();
-  if (chapters.length === 0) {
-    box.append(el("p", {}, "还没有可回顾的内容。"));
-    return;
-  }
-  for (const ch of chapters) {
-    const label = [...ch.parent_titles, ch.title].join(" · ");
-    const details = el("details", {}, el("summary", {}, label));
-    if (ch.summary) {
-      const btn = el("button", {}, "重新生成");
-      btn.onclick = () => regenerate(ch.number, btn);
-      details.append(
-        el("p", {}, ch.summary.summary),
-        el("p", { class: "muted" }, `章末：${ch.summary.ending_state}`),
-        btn,
-      );
-    } else {
-      details.append(el("p", { class: "muted" }, "等待生成…"));
-    }
-    box.append(details);
-  }
-}
-
-// 一次生成一章，循环到补齐为止
-async function generateMissing(total) {
-  if (generating) return;
-  generating = true;
-  try {
-    let missing = total;
-    while (missing > 0) {
-      statusEl.textContent = `生成中 ${total - missing + 1} / ${total}`;
-      const res = await api(`/api/books/${bookId}/summaries/next`, { method: "POST" });
-      missing = res.missing;
-      await load();
-    }
-    statusEl.textContent = "";
-  } catch (err) {
-    statusEl.textContent = `生成失败：${err.message}（刷新页面可从断点继续）`;
-  } finally {
-    generating = false;
-  }
-}
-
-async function regenerate(number, btn) {
-  btn.disabled = true;
-  btn.textContent = "生成中…";
-  try {
-    await api(`/api/books/${bookId}/chapters/${number}/summary/regenerate`, { method: "POST" });
-    await load();
-    loadRecap();  // 参与汇总的摘要变了，回顾会重新生成
-  } catch (err) {
-    alert(err.message);
-    btn.disabled = false;
-    btn.textContent = "重新生成";
-  }
-}
-
-load()
-  .then(async (data) => {
-    if (data.missing > 0) await generateMissing(data.missing);
-    loadRecap();
-  })
-  .catch((err) => { statusEl.textContent = err.message; });
-</script>
+  <section class="section" aria-labelledby="h-chapters">
+    <div class="section-head">
+      <h2 id="h-chapters">逐章摘要</h2>
+      <button class="btn btn-ghost btn-sm" id="toggle-all" type="button" hidden>全部展开</button>
+    </div>
+    <div id="summaries"></div>
+  </section>
+</main>
 </body>
 </html>

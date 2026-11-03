@@ -86,3 +86,16 @@ def test_health_reports_whether_llm_is_configured(client, monkeypatch):
     assert client.get("/api/health").json() == {"status": "ok", "llm_configured": False}
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     assert client.get("/api/health").json() == {"status": "ok", "llm_configured": True}
+
+
+def test_pages_and_their_assets_are_served(client):
+    # 前端没有构建步骤，页面引用的脚本和样式写错路径时只能靠这个测试发现
+    import re
+
+    for page in ("/", "/book.html", "/summary.html"):
+        res = client.get(page)
+        assert res.status_code == 200, page
+        assets = re.findall(r'(?:src|href)="((?:js/)?[\w.-]+\.(?:js|css))"', res.text)
+        assert assets, page
+        for asset in assets:
+            assert client.get(f"/{asset}").status_code == 200, f"{page} 引用的 {asset} 不存在"
