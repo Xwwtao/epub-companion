@@ -1,3 +1,6 @@
+import pytest
+
+from app import books
 from tests import epub_builder
 
 
@@ -66,3 +69,14 @@ def test_index_page_is_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "书架" in res.text
+
+
+@pytest.mark.parametrize(
+    ("media_type", "suffix"),
+    [("image/jpeg", ".jpg"), ("image/jpg", ".jpg"), ("IMAGE/PNG", ".png"), ("image/x-unknown", ".img")],
+)
+def test_cover_extension_from_media_type(tmp_path, media_type, suffix):
+    # 非标准的 image/jpg 很常见；存成 .img 的话封面接口会以 application/octet-stream 返回
+    path = books._save_cover((b"data", media_type), tmp_path, "stem")
+    assert path.suffix == suffix
+    assert path.read_bytes() == b"data"

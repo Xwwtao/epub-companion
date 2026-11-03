@@ -14,6 +14,9 @@ from app.epub_parser import ParsedBook, ParsedChapter, parse_epub
 # 避免书名随正文发给模型（spec §2）。更长的页面只在界面上提醒。
 AUTO_SKIP_MAX_CHARS = 3000
 
+# EPUB 里常见、但 mimetypes 不认识的非标准写法。扩展名决定了封面接口返回的 Content-Type
+NONSTANDARD_IMAGE_TYPES = {"image/jpg": ".jpg", "image/pjpeg": ".jpg", "image/x-png": ".png"}
+
 
 def mentions_book_info(text: str, title: str, author: str | None) -> bool:
     # 要求书名和作者同时出现：只出现书名的正文很常见（人物提到书名、章节标题重复），不该被标记
@@ -60,7 +63,8 @@ def _save_cover(cover: tuple[bytes, str] | None, covers_dir: Path, stem: str) ->
     if not cover:
         return None
     content, media_type = cover
-    ext = mimetypes.guess_extension(media_type) or ".img"
+    media_type = media_type.lower()
+    ext = mimetypes.guess_extension(media_type) or NONSTANDARD_IMAGE_TYPES.get(media_type, ".img")
     path = covers_dir / f"{stem}{ext}"
     path.write_bytes(content)
     return path
