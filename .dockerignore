@@ -1,0 +1,13 @@
+# 只需要 requirements.txt 和 app/；密钥、数据和本地环境绝不能进镜像
+.env
+.env.*
+data/
+samples/
+.venv/
+venv/
+.git/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/

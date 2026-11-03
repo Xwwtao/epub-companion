@@ -7,12 +7,13 @@ EPUB 读书伴侣：导入 EPUB、设置阅读进度，基于已读章节生成�
 ## 常用命令
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt   # 运行时依赖在 requirements.txt
 cp .env.example .env                 # 配置全部走环境变量，见 app/config.py
 
 .venv/bin/python -m app              # 启动，读取 HOST/PORT；APP_ENV=development 时自动 reload
 .venv/bin/pytest                     # 全部测试
 .venv/bin/pytest tests/test_epub_parser.py::test_anchors_split_and_span_files   # 单个测试
+.venv/bin/ruff format . && .venv/bin/ruff check .   # 格式化和静态检查，配置在 pyproject.toml
 ```
 
 没有构建步骤：前端是 `app/static/` 下的静态 HTML + 原生 JS，由 FastAPI 在 `/` 挂载提供。
