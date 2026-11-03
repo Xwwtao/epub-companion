@@ -170,5 +170,7 @@ def with_book_info(path: Path) -> Path:
         _page("c2.xhtml", "<h2>第二章</h2><p>" + "很长的正文。" * 600 + "白页测试，某作者。</p>"),
         _page("c3.xhtml", "<h2>第三章</h2><p>普通正文。</p>"),
     ]
-    toc = [epub.Link(p.file_name, t, p.id) for p, t in zip(pages, ["版权信息", "第一章", "第二章", "第三章"])]
+    toc = [
+        epub.Link(p.file_name, t, p.id) for p, t in zip(pages, ["版权信息", "第一章", "第二章", "第三章"], strict=True)
+    ]
     return _write(book, pages, toc, path)

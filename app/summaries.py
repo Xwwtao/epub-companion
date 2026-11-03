@@ -57,7 +57,9 @@ def regenerate(conn: sqlite3.Connection, client: LLMClient, book_id: int, number
 def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: dict, target) -> dict:
     prior = [(ch, stored[ch.id]) for ch in readable if ch.number < target.number and ch.id in stored]
     k = get_settings().summary_context_chapters
-    recent = [(prompts.chapter_label(ch.parent_titles, ch.title), s["summary"]) for ch, s in prior[-k:]] if k > 0 else []
+    recent = (
+        [(prompts.chapter_label(ch.parent_titles, ch.title), s["summary"]) for ch, s in prior[-k:]] if k > 0 else []
+    )
     roster = merge_names(s["names"] for _, s in prior)
 
     label = prompts.chapter_label(target.parent_titles, target.title)
@@ -93,8 +95,13 @@ def _generate(conn, client, book_id, readable: list[ReadableChapter], stored: di
             summary = excluded.summary, ending_state = excluded.ending_state, names = excluded.names,
             model = excluded.model, version = chapter_summaries.version + 1, created_at = CURRENT_TIMESTAMP
         """,
-        (target.id, result["summary"].strip(), result["ending_state"].strip(),
-         json.dumps(names, ensure_ascii=False), client.model),
+        (
+            target.id,
+            result["summary"].strip(),
+            result["ending_state"].strip(),
+            json.dumps(names, ensure_ascii=False),
+            client.model,
+        ),
     )
     conn.commit()
     saved = load_summaries(conn, [target])[target.id]
@@ -126,13 +133,16 @@ def merge_names(names_lists) -> list[dict]:
         for person in names:
             existing = next(
                 (
-                    r for r in roster
+                    r
+                    for r in roster
                     if person["name"] == r["name"] or person["name"] in r["aliases"] or r["name"] in person["aliases"]
                 ),
                 None,
             )
             if existing is None:
-                roster.append({"name": person["name"], "aliases": list(person["aliases"]), "original": person["original"]})
+                roster.append(
+                    {"name": person["name"], "aliases": list(person["aliases"]), "original": person["original"]}
+                )
                 continue
             aliases = [*existing["aliases"], existing["name"], *person["aliases"]]
             existing["name"] = person["name"]
@@ -168,11 +178,13 @@ def _normalize_names(names: list[dict]) -> list[dict]:
     for p in names:
         aliases = p.get("aliases") if isinstance(p.get("aliases"), list) else []
         original = p.get("original") if isinstance(p.get("original"), str) else ""
-        result.append({
-            "name": p["name"].strip(),
-            "aliases": [a.strip() for a in aliases if isinstance(a, str) and a.strip()],
-            "original": original.strip(),
-        })
+        result.append(
+            {
+                "name": p["name"].strip(),
+                "aliases": [a.strip() for a in aliases if isinstance(a, str) and a.strip()],
+                "original": original.strip(),
+            }
+        )
     return result
 
 

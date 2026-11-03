@@ -30,8 +30,7 @@ def get_recap(conn: sqlite3.Connection, client: LLMClient, book_id: int, current
     source = [(ch.id, stored[ch.id]["summary"]) for ch in readable]
     source_hash = hashlib.sha256(json.dumps(source).encode()).hexdigest()
     row = conn.execute(
-        "SELECT content, created_at FROM recaps"
-        " WHERE book_id = ? AND up_to_chapter = ? AND source_versions_hash = ?",
+        "SELECT content, created_at FROM recaps WHERE book_id = ? AND up_to_chapter = ? AND source_versions_hash = ?",
         (book_id, current_chapter, source_hash),
     ).fetchone()
     if row is not None:
@@ -42,8 +41,12 @@ def get_recap(conn: sqlite3.Connection, client: LLMClient, book_id: int, current
     groups = _group(items, RECAP_MAX_INPUT_CHARS)
     if len(groups) > 1:
         items = [
-            (f"第 {i} 部分", complete_json(client, "recap_group", prompts.recap_messages(g, group=True),
-                                         {**meta, "group": i}, _validate)["recap"])
+            (
+                f"第 {i} 部分",
+                complete_json(
+                    client, "recap_group", prompts.recap_messages(g, group=True), {**meta, "group": i}, _validate
+                )["recap"],
+            )
             for i, g in enumerate(groups, start=1)
         ]
     content = complete_json(client, "recap", prompts.recap_messages(items), meta, _validate)["recap"].strip()

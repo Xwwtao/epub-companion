@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from openai import OpenAI
@@ -65,7 +65,7 @@ def _log_request(client: LLMClient, kind: str, messages: list[dict], meta: dict)
         return
     # 只记录请求内容，不记录 key 和请求头
     record = {
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(UTC).isoformat(),
         "kind": kind,
         **meta,
         "model": client.model,

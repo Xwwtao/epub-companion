@@ -83,9 +83,7 @@ def set_progress(book_id: int, body: ProgressIn, conn: sqlite3.Connection = Depe
 
 
 @app.put("/api/books/{book_id}/chapters/{number}/skipped")
-def set_skipped(
-    book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connection = Depends(get_conn)
-) -> dict:
+def set_skipped(book_id: int, number: int, body: SkippedIn, conn: sqlite3.Connection = Depends(get_conn)) -> dict:
     if not books.set_skipped(conn, book_id, number, body.skipped):
         raise HTTPException(status_code=404, detail="章节不存在")
     return books.get_book(conn, book_id)

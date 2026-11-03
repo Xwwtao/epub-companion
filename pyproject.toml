@@ -12,6 +12,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # pytest fixture 从别的测试模块导入后再作为参数名使用，属于正常写法
 "tests/*" = ["F811"]
+# prompt 正文一行一条规则，按长度折行反而难读，也会改变发给模型的文本
+"app/prompts.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

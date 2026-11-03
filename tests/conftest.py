@@ -64,11 +64,13 @@ class FakeLLM:
         body = messages[-1]["content"].rsplit("原文】", 1)[-1]
         m = re.search(r"MARKER_CH(\d+)", body)
         n = m.group(1) if m else "XX"
-        return json.dumps({
-            "summary": f"SUM_CH{n}",
-            "ending_state": f"END_CH{n}",
-            "names": [{"name": f"NAME_CH{n}", "aliases": [], "original": ""}],
-        })
+        return json.dumps(
+            {
+                "summary": f"SUM_CH{n}",
+                "ending_state": f"END_CH{n}",
+                "names": [{"name": f"NAME_CH{n}", "aliases": [], "original": ""}],
+            }
+        )
 
     def all_text(self) -> str:
         return "\n".join(m["content"] for call in self.calls for m in call)

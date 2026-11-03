@@ -10,7 +10,6 @@ from app.config import get_settings
 from app.db import DEFAULT_USER_ID
 from app.epub_parser import parse_epub
 
-
 # 正文同时含书名和作者、且不超过这个字数的页面（版权页、扉页之类）导入时默认跳过，
 # 避免书名随正文发给模型（spec §2）。更长的页面只在界面上提醒。
 AUTO_SKIP_MAX_CHARS = 3000
@@ -56,10 +55,18 @@ def import_book(conn: sqlite3.Connection, upload: BinaryIO) -> int:
         for number, ch in enumerate(parsed.chapters, start=1):
             mentions = mentions_book_info(ch.text, parsed.title, parsed.author)
             skipped = mentions and len(ch.text) <= AUTO_SKIP_MAX_CHARS
-            rows.append((
-                book_id, number, ch.title, json.dumps(ch.parent_titles, ensure_ascii=False), ch.start_href,
-                int(mentions), int(skipped), ch.text,
-            ))
+            rows.append(
+                (
+                    book_id,
+                    number,
+                    ch.title,
+                    json.dumps(ch.parent_titles, ensure_ascii=False),
+                    ch.start_href,
+                    int(mentions),
+                    int(skipped),
+                    ch.text,
+                )
+            )
         conn.executemany(
             "INSERT INTO chapters (book_id, number, title, parent_titles, start_href,"
             " mentions_book_info, skipped, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

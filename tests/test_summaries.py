@@ -47,6 +47,7 @@ def context_part(user_message: str) -> str:
 
 # ---- 防剧透（验收标准 2、3）----
 
+
 @pytest.mark.parametrize("n", [2, 4, TOTAL])
 def test_requests_never_contain_unread_text_or_metadata(client, fake_llm, book_id, n):
     set_progress(client, book_id, n)
@@ -76,6 +77,7 @@ def test_every_system_prompt_has_spoiler_guard(client, fake_llm, book_id, monkey
 
 # ---- 上下文范围（验收标准 4）----
 
+
 def test_context_has_only_recent_k_summaries_and_prior_names(client, fake_llm, book_id, monkeypatch):
     monkeypatch.setenv("SUMMARY_CONTEXT_CHAPTERS", "2")
     set_progress(client, book_id, TOTAL)
@@ -104,6 +106,7 @@ def test_skipped_chapters_are_not_counted_in_context(client, fake_llm, book_id, 
 
 # ---- 切块 ----
 
+
 def test_long_chapter_is_chunked_then_merged(client, fake_llm, book_id, monkeypatch):
     monkeypatch.setenv("SUMMARY_CONTEXT_CHAPTERS", "2")
     set_progress(client, book_id, 4)
@@ -130,6 +133,7 @@ def test_split_text():
 
 
 # ---- 缓存和重新生成（验收标准 6）----
+
 
 def test_cached_summaries_do_not_call_llm(client, fake_llm, book_id):
     set_progress(client, book_id, 4)
@@ -178,6 +182,7 @@ def test_progress_rollback_hides_later_summaries(client, fake_llm, book_id):
 
 # ---- 模型返回异常 ----
 
+
 def test_invalid_json_is_retried_once(client, fake_llm, book_id):
     set_progress(client, book_id, 2)
     fake_llm.queue.append("不是 JSON")
@@ -203,11 +208,18 @@ def test_missing_api_key(client, book_id, monkeypatch):
 
 def test_original_name_not_in_text_is_dropped(client, fake_llm, book_id):
     set_progress(client, book_id, 3)
-    fake_llm.queue.append(json.dumps({
-        "summary": "S", "ending_state": "E",
-        "names": [{"name": "甲", "aliases": [], "original": "Invented Name"},
-                  {"name": "乙", "aliases": [], "original": "MARKER_CH01"}],
-    }))
+    fake_llm.queue.append(
+        json.dumps(
+            {
+                "summary": "S",
+                "ending_state": "E",
+                "names": [
+                    {"name": "甲", "aliases": [], "original": "Invented Name"},
+                    {"name": "乙", "aliases": [], "original": "MARKER_CH01"},
+                ],
+            }
+        )
+    )
     generate_all(client, book_id)
 
     context = context_part(call_for(fake_llm, 2))
@@ -217,16 +229,19 @@ def test_original_name_not_in_text_is_dropped(client, fake_llm, book_id):
 
 # ---- 人物名单合并 ----
 
+
 def person(name, aliases=(), original=""):
     return {"name": name, "aliases": list(aliases), "original": original}
 
 
 def test_merge_names_dedupes_and_follows_renames():
-    roster = summaries.merge_names([
-        [person("乔峰", ["乔帮主"]), person("段誉")],
-        [person("乔峰"), person("伊丽莎白", original="Elizabeth")],
-        [person("萧峰", ["乔峰"])],  # 文本揭示了新名字
-    ])
+    roster = summaries.merge_names(
+        [
+            [person("乔峰", ["乔帮主"]), person("段誉")],
+            [person("乔峰"), person("伊丽莎白", original="Elizabeth")],
+            [person("萧峰", ["乔峰"])],  # 文本揭示了新名字
+        ]
+    )
     assert roster == [
         person("萧峰", ["乔帮主", "乔峰"]),
         person("段誉"),
@@ -235,8 +250,10 @@ def test_merge_names_dedupes_and_follows_renames():
 
 
 def test_merge_names_does_not_join_people_on_shared_generic_alias():
-    roster = summaries.merge_names([
-        [person("西本雪穗", ["雪穗", "女孩"])],
-        [person("川岛江利子", ["江利子", "女孩"])],
-    ])
+    roster = summaries.merge_names(
+        [
+            [person("西本雪穗", ["雪穗", "女孩"])],
+            [person("川岛江利子", ["江利子", "女孩"])],
+        ]
+    )
     assert [p["name"] for p in roster] == ["西本雪穗", "川岛江利子"]

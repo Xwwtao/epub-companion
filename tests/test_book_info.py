@@ -21,7 +21,11 @@ def test_copyright_page_is_skipped_by_default(client, tmp_path):
     # 用户可以取消默认的跳过，提醒标记保留
     res = client.put(f"/api/books/{book['id']}/chapters/1/skipped", json={"skipped": False})
     assert res.json()["chapters"][0] == {
-        "number": 1, "title": "版权信息", "parent_titles": [], "skipped": False, "mentions_book_info": True,
+        "number": 1,
+        "title": "版权信息",
+        "parent_titles": [],
+        "skipped": False,
+        "mentions_book_info": True,
     }
 
 

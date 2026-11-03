@@ -22,11 +22,14 @@ from lxml import etree
 
 logger = logging.getLogger(__name__)
 
+# 这些标签前后断行，其余（span、em 等行内标签）不打断段落
+# fmt: off
 BLOCK_TAGS = {
     "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt",
     "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6",
     "header", "hr", "li", "ol", "p", "pre", "section", "table", "tr", "ul",
 }
+# fmt: on
 SKIP_TAGS = {"script", "style", "head", "title"}
 NON_TEXT_STRINGS = (Comment, CData, ProcessingInstruction, Declaration, Doctype)
 FONT_EXTENSIONS = (".ttf", ".otf", ".woff", ".woff2")
