@@ -17,6 +17,7 @@ class Settings:
     deepseek_base_url: str
     deepseek_model: str
     summary_context_chapters: int
+    cors_origins: tuple[str, ...] = ()
 
     @property
     def is_development(self) -> bool:
@@ -52,4 +53,5 @@ def get_settings() -> Settings:
         deepseek_base_url=_env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         deepseek_model=_env("DEEPSEEK_MODEL", "deepseek-chat"),
         summary_context_chapters=int(_env("SUMMARY_CONTEXT_CHAPTERS", "3")),
+        cors_origins=tuple(o.strip().rstrip("/") for o in _env("CORS_ORIGINS", "").split(",") if o.strip()),
     )

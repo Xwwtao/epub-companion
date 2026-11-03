@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,6 +25,17 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="EPUB 读书伴侣", lifespan=lifespan)
 
+# 默认前后端同源（静态页面由本服务提供），不需要 CORS。前端单独部署到别的域名时，
+# 在 CORS_ORIGINS 里列出它的地址；允许携带 Cookie，为以后的登录预留
+if _cors_origins := get_settings().cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(_cors_origins),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 def get_conn() -> Iterator[sqlite3.Connection]:
     # 每个请求一个连接，请求结束就关；SQLite 连接很便宜，这样不用操心跨线程共享
@@ -32,6 +44,12 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         yield conn
     finally:
         conn.close()
+
+
+@app.get("/api/health")
+def health() -> dict:
+    """存活检查，供部署时的负载均衡 / 监控使用；前端也用它判断能不能生成摘要。"""
+    return {"status": "ok", "llm_configured": bool(get_settings().deepseek_api_key)}
 
 
 @app.post("/api/books", status_code=201)

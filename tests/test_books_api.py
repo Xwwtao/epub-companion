@@ -80,3 +80,9 @@ def test_cover_extension_from_media_type(tmp_path, media_type, suffix):
     path = books._save_cover((b"data", media_type), tmp_path, "stem")
     assert path.suffix == suffix
     assert path.read_bytes() == b"data"
+
+
+def test_health_reports_whether_llm_is_configured(client, monkeypatch):
+    assert client.get("/api/health").json() == {"status": "ok", "llm_configured": False}
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    assert client.get("/api/health").json() == {"status": "ok", "llm_configured": True}

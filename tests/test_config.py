@@ -26,3 +26,10 @@ def test_values_are_read_from_environment(monkeypatch, tmp_path):
     assert settings.data_dir == tmp_path.resolve()
     assert settings.port == 9000
     assert settings.is_development
+
+
+def test_cors_origins_are_parsed(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", " https://a.example.com/ , ,http://localhost:5173")
+    assert get_settings().cors_origins == ("https://a.example.com", "http://localhost:5173")
+    monkeypatch.setenv("CORS_ORIGINS", "")
+    assert get_settings().cors_origins == ()
